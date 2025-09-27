@@ -48,7 +48,6 @@ public class UserService{
                 .status(AccountStatus.ACTIVE)
                 .role(role)
                 .build();
-
         return userRepo.save(u);
     }
 
