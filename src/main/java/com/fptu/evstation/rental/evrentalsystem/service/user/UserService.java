@@ -19,31 +19,27 @@ public class UserService{
     private final RoleRepository roleRepo;
 
     public User register(RegisterRequest req) {
-        if (userRepo.existsByUsername(req.getUsername())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username already exists");
-        }
         if (req.getEmail() != null && userRepo.existsByEmail(req.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email already exists");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email đã tồn tại");
         }
         if (userRepo.existsByPhone(req.getPhone())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phone already exists");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Số điện thoại đã tồn tại");
         }
-        if (req.getCccd() != null && userRepo.existsByCccd(req.getCccd())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CCCD already exists");
+        if(!req.getPassword().equals(req.getConfirmPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password và Confirm Password không khớp");
+        }
+        if (!req.isAgreedToTerms()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bạn phải đồng ý với Điều khoản dịch vụ và Chính sách bảo mật");
         }
 
-        String roleName = (req.getRole() == null || req.getRole().isBlank()) ? "EV_RENTER" : req.getRole();
-        Role role = roleRepo.findByRoleName(roleName)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid role"));
+        Role role = roleRepo.findByRoleName("EV_RENTER")
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể phân role cho user"));
 
         User u = User.builder()
-                .username(req.getUsername())
                 .password(req.getPassword())
                 .email(req.getEmail())
-                .fullName(req.getFullname())
+                .fullName(req.getFullName())
                 .phone(req.getPhone())
-                .cccd(req.getCccd())
-                .gplx(req.getGplx())
                 .verified(false)
                 .status(AccountStatus.ACTIVE)
                 .role(role)
@@ -51,8 +47,18 @@ public class UserService{
         return userRepo.save(u);
     }
 
-    public User findByUsername(String username) {
-        return userRepo.findByUsername(username)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    public User findByEmail(String email) {
+        return userRepo.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Người dùng không tồn tại"));
+    }
+
+    public User findByIdentifier(String identifier) {
+        if (identifier.contains("@")) {
+            return userRepo.findByEmail(identifier)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
+        } else {
+            return userRepo.findByPhone(identifier)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
+        }
     }
 }

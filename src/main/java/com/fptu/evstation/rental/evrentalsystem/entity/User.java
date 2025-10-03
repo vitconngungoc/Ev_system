@@ -9,7 +9,6 @@ import lombok.*;
 @Entity
 @Table(name = "Users",
         indexes = {
-                @Index(columnList = "username"),
                 @Index(columnList = "email"),
                 @Index(columnList = "phone")
         })
@@ -24,9 +23,6 @@ public class User {
     @Column(name = "userId")
     private int userId;
 
-    @Column(nullable = false, unique = true, length = 50)
-    private String username;
-
     @Column(nullable = false, length = 100)
     private String password;
 
@@ -35,7 +31,7 @@ public class User {
     @NotBlank(message = "Email không được để trống")
     private String email;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, columnDefinition = "nvarchar(100)")
     private String fullName;
 
     @Column(unique = true, length = 20)
@@ -46,6 +42,7 @@ public class User {
 
     @Column(unique = true, length = 50)
     private String gplx;
+
     private boolean verified = false;
 
     @Enumerated(EnumType.STRING)

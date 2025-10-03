@@ -6,8 +6,8 @@ import jakarta.validation.constraints.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LoginRequest {
-    @NotBlank
-    private String username;
-    @NotBlank
+    @NotBlank(message = "Email hoặc phone không được để trống")
+    private String identifier;
+    @NotBlank(message = "Mật khẩu không được để trống")
     private String password;
 }

@@ -22,13 +22,17 @@ public class TokenService {
                 .token(UUID.randomUUID().toString())
                 .user(user)
                 .createdAt(Instant.now())
-                .expiresAt(Instant.now().plus(24, ChronoUnit.HOURS))
+                .expiresAt(Instant.now().plus(2, ChronoUnit.HOURS))
                 .build();
         return tokenRepo.save(t);
     }
 
     public void deleteToken(String token) {
-        tokenRepo.deleteByToken(token);
+        AuthToken existingToken = tokenRepo.findByToken(token)
+                .filter(t -> t.getExpiresAt() == null || t.getExpiresAt().isAfter(Instant.now()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token không tồn tại hoặc đã hết hạn"));
+
+        tokenRepo.delete(existingToken);
     }
 
     public User validateAndGetUser(String token) {

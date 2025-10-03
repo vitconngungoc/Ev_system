@@ -10,23 +10,22 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RegisterRequest {
+
     @NotBlank
-    private String username;
+    private String fullName;
 
     @NotBlank
     private String password;
+
+    @NotBlank
+    private String confirmPassword;
 
     @Email
     @NotBlank
     private String email;
 
     @NotBlank
-    private String fullname;
-
-    @NotBlank
     private String phone;
 
-    private String cccd;
-    private String gplx;
-    private String role;
+    private boolean agreedToTerms = false;
 }

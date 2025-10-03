@@ -16,14 +16,14 @@ public class AuthService {
     private final TokenService tokenService;
 
     public AuthResponse login(LoginRequest req) {
-        User user = userService.findByUsername(req.getUsername());
+        User user = userService.findByIdentifier(req.getIdentifier());
 
         if (!req.getPassword().equals(user.getPassword())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email/SĐT hoặc mật khẩu không đúng");
         }
 
         AuthToken t = tokenService.createToken(user);
-        return new AuthResponse(t.getToken(), t.getExpiresAt(), user.getUsername());
+        return new AuthResponse(t.getToken(), t.getExpiresAt(), user.getFullName());
     }
 
     public void logout(String token) {

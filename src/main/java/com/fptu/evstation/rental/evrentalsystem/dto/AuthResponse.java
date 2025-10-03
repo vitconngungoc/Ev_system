@@ -9,6 +9,6 @@ import java.time.Instant;
 public class AuthResponse {
     private String token;
     private Instant expiresAt;
-    private String username;
+    private String fullName;
 }
 

@@ -4,6 +4,7 @@ import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.service.auth.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -22,7 +23,6 @@ public class ProfileController {
 
         String token = authHeader.substring(7);
         User user = authService.validateTokenAndGetUser(token);
-        // password đã @JsonIgnore trong entity => tự động không trả về
         return ResponseEntity.ok(user);
     }
 }
