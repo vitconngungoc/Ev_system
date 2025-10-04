@@ -64,7 +64,7 @@ public class AppConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // SỬA: Thêm port rõ ràng, bỏ "http://127.0.0.1" nếu không dùng
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:8080", "http://127.0.0.1"));
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:5500","http://127.0.0.1:5500","http://localhost:8080"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);

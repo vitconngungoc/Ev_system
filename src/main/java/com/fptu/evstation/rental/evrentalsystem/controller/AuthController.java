@@ -23,40 +23,28 @@ public class AuthController {
     /** Đăng ký tài khoản mới */
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
-        try {
-            User user = userService.register(req);
-            return ResponseEntity.ok(Map.of(
-                    "message", "Đã đăng ký thành công",
-                    "UserName", user.getFullName()
-            ));
-        } catch (ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode()).body(Map.of("error", e.getReason()));
-        }
+        User user = userService.register(req);  // Ném ResponseStatusException nếu lỗi
+        return ResponseEntity.ok(Map.of(
+                "message", "Đã đăng ký thành công",
+                "UserName", user.getFullName()
+        ));
     }
 
     /** Đăng nhập và nhận token */
     @PostMapping("/login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req) {
-        try {
-            AuthResponse authResponse = authService.login(req);
-            return ResponseEntity.ok(authResponse);
-        } catch (ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode()).body(Map.of("error", e.getReason()));
-        }
+        AuthResponse authResponse = authService.login(req);  // Ném ResponseStatusException nếu lỗi
+        return ResponseEntity.ok(authResponse);
     }
 
     /** Đăng xuất (xóa token) */
     @PostMapping("/logout")
     public ResponseEntity<?> logout(@RequestHeader(name = "Authorization", required = false) String authHeader) {
-        try {
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Thiếu token"));
-            }
-            String token = authHeader.substring(7);
-            authService.logout(token);
-            return ResponseEntity.ok(Map.of("message", "Đã đăng xuất thành công"));
-        } catch (ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode()).body(Map.of("error", e.getReason()));
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Thiếu token");
         }
+        String token = authHeader.substring(7);
+        authService.logout(token);  // Ném ResponseStatusException nếu lỗi
+        return ResponseEntity.ok(Map.of("message", "Đã đăng xuất thành công"));
     }
 }

@@ -4,8 +4,8 @@ import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.service.auth.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/profile")
@@ -18,11 +18,10 @@ public class ProfileController {
     @GetMapping("/me")
     public ResponseEntity<?> me(@RequestHeader(name = "Authorization", required = false) String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return ResponseEntity.status(401).body("Missing token");
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Missing token");
         }
-
         String token = authHeader.substring(7);
-        User user = authService.validateTokenAndGetUser(token);
+        User user = authService.validateTokenAndGetUser(token);  // Ném ResponseStatusException nếu invalid
         return ResponseEntity.ok(user);
     }
 }
