@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface VehicleRepository extends JpaRepository<Vehicle, Long>, JpaSpecificationExecutor<Vehicle> {
+    boolean existsByLicensePlate(String licensePlate);
     long countByStation(Station station);
     long countByModel(Model model);
 }

@@ -65,5 +65,11 @@ public class StationServiceImpl implements StationService {
         stationRepository.delete(station);
     }
 
+    @Override
+    public Station getStationById(Long stationId) {
+        return stationRepository.findById(stationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy trạm với ID: " + stationId));
+    }
+
 
 }

@@ -10,4 +10,5 @@ public interface StationService {
     List<Station> getAllStations();
     Station updateStation(Long id, UpdateStationRequest request);
     void deleteStation(Long id);
+    Station getStationById(Long stationId);
 }
