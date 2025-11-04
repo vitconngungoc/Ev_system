@@ -32,7 +32,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     @Override
     @Transactional
-    public Vehicle createVehicle(CreateVehicleRequest request) {
+    public VehicleResponse createVehicle(CreateVehicleRequest request) {
         if (vehicleRepository.existsByLicensePlate(request.getLicensePlate())) {
             throw new RuntimeException("Biển số xe đã tồn tại!");
         }
@@ -48,7 +48,28 @@ public class VehicleServiceImpl implements VehicleService {
                 .status(VehicleStatus.valueOf(request.getStatus()))
                 .condition(VehicleCondition.valueOf(request.getCondition()))
                 .build();
-        return vehicleRepository.save(vehicle);
+
+        Vehicle savedVehicle = vehicleRepository.save(vehicle);
+
+        return VehicleResponse.builder()
+                .vehicleId(savedVehicle.getVehicleId())
+                .licensePlate(savedVehicle.getLicensePlate())
+                .batteryLevel(savedVehicle.getBatteryLevel())
+                .modelName(model.getModelName())
+                .stationName(station.getName())
+                .stationId(station.getStationId())
+                .currentMileage(savedVehicle.getCurrentMileage())
+                .status(savedVehicle.getStatus().name())
+                .condition(savedVehicle.getCondition().name())
+                .vehicleType(model.getVehicleType())
+                .pricePerHour(model.getPricePerHour())
+                .seatCount(model.getSeatCount())
+                .rangeKm(model.getRangeKm())
+                .features(model.getFeatures())
+                .description(model.getDescription())
+                .imagePaths(getModelImagePaths(model))
+                .createdAt(savedVehicle.getCreatedAt())
+                .build();
     }
 
     @Override

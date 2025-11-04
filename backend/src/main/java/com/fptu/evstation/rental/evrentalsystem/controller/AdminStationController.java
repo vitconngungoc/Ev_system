@@ -1,13 +1,12 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.CreateModelRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.StationRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateModelRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateStationRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.Model;
 import com.fptu.evstation.rental.evrentalsystem.entity.Station;
+import com.fptu.evstation.rental.evrentalsystem.entity.Vehicle;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
+import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,7 +23,7 @@ public class AdminStationController {
 
     private final StationService stationService;
     private final ModelService modelService;
-
+    private final VehicleService vehicleService;
     @PostMapping("/stations")
     public ResponseEntity<Station> createStation(@RequestBody StationRequest request) {
         return ResponseEntity.ok(stationService.addStation(request));
@@ -82,6 +81,67 @@ public class AdminStationController {
             return ResponseEntity.ok(Map.of("message", "Model đã được xóa thành công!"));
         } catch (ResponseStatusException e) {
             return ResponseEntity.status(e.getStatusCode()).body(Map.of("error", e.getReason()));
+        }
+    }
+
+    @PostMapping("/vehicles")
+    public ResponseEntity<VehicleResponse> createVehicle(@RequestBody CreateVehicleRequest request) {
+        return ResponseEntity.ok(vehicleService.createVehicle(request));
+    }
+
+    @GetMapping("/vehicles")
+    public ResponseEntity<List<VehicleResponse>> getAllVehicles(
+            @RequestParam(required = false) Long modelId,
+            @RequestParam(required = false) Long stationId,
+            @RequestParam(required = false) String vehicleType,
+            @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
+            @RequestParam(required = false, defaultValue = "desc") String order) {
+        return ResponseEntity.ok(vehicleService.getAllVehicles(modelId, stationId, vehicleType, sortBy, order));
+    }
+
+    @GetMapping("/vehicles/{id}")
+    public ResponseEntity<?> getVehicleDetailsById(@PathVariable Long id) {
+        try {
+            VehicleResponse response = vehicleService.getVehicleDetailsById(id);
+            return ResponseEntity.ok(response);
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", e.getReason()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
+        }
+    }
+    @PutMapping("/vehicles/{id}")
+    public ResponseEntity<?> updateVehicle(@PathVariable Long id, @RequestBody UpdateVehicleDetailsRequest  request) {
+        try {
+            Vehicle updated = vehicleService.updateVehicle(id, request);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Xe đã được cập nhật thành công!",
+                    "vehicleId", updated.getVehicleId()
+            ));
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", e.getReason()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/vehicles/{id}")
+    public ResponseEntity<?> deleteVehicle(@PathVariable Long id) {
+        try {
+            vehicleService.deleteVehicle(id);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Xe với ID " + id + " đã được xóa thành công!"
+            ));
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", e.getReason()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
         }
     }
 }

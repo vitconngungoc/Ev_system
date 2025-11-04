@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface VehicleService {
 
-    Vehicle createVehicle(CreateVehicleRequest request);
+    VehicleResponse createVehicle(CreateVehicleRequest request);
     Vehicle updateVehicle(Long id, UpdateVehicleDetailsRequest request);
     void deleteVehicle(Long id);
     Vehicle getVehicleById(Long vehicleId);
