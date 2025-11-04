@@ -42,8 +42,9 @@ public class Model {
     @Column(columnDefinition = "nvarchar(255)")
     private String description;
 
-    @Column(length = 500)
-    private String imageUrl;
+    @Column(columnDefinition = "TEXT")
+    private String imagePaths;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
