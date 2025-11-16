@@ -2,6 +2,7 @@ package com.fptu.evstation.rental.evrentalsystem.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -12,15 +13,16 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@Builder
 public class PasswordReset {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "otpCode", nullable = false, length = 10)
+    @Column(nullable = false, length = 10)
     private String otpCode;
 
-    @Column(name = "expiryDate", nullable = false)
+    @Column(nullable = false)
     private LocalDateTime expiryDate;
 
     @ManyToOne

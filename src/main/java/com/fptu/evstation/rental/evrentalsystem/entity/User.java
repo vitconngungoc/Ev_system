@@ -1,27 +1,29 @@
 package com.fptu.evstation.rental.evrentalsystem.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
-
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Entity
 @Table(name = "Users",
         indexes = {
                 @Index(columnList = "email"),
                 @Index(columnList = "phone")
         })
-@Data
+@Getter // Add these annotations
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@ToString(exclude = {"station"})
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-
-    @Column(name = "userId")
-    private int userId;
+    @Column
+    private Long userId;
 
     @Column(nullable = false, length = 100)
     private String password;
@@ -43,13 +45,34 @@ public class User {
     @Column(unique = true, length = 50)
     private String gplx;
 
-    private boolean verified = false;
+    @Column(length = 500)
+    private String cccdPath1;
+    @Column(length = 500)
+    private String cccdPath2;
+    @Column(length = 500)
+    private String gplxPath1;
+    @Column(length = 500)
+    private String gplxPath2;
+    @Column(length = 500)
+    private String selfiePath;
+
+    @Enumerated(EnumType.STRING)
+    private VerificationStatus verificationStatus = VerificationStatus.PENDING;
+    @Column(columnDefinition = "nvarchar(500)")
+    private String rejectionReason;
 
     @Enumerated(EnumType.STRING)
     private AccountStatus status = AccountStatus.ACTIVE;
+
+    @Column(nullable = false, columnDefinition = "int default 0")
+    private Integer cancellationCount = 0;
 
     @JsonManagedReference
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "roleId",nullable = false)
     private Role role;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "stationId")
+    private Station station;
 }
