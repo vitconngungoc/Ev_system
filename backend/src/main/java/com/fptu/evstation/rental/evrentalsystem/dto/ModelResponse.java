@@ -1,7 +1,9 @@
 package com.fptu.evstation.rental.evrentalsystem.dto;
 
+import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
 import lombok.Builder;
 import lombok.Data;
+
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,7 +13,7 @@ import java.util.List;
 public class ModelResponse {
     private Long modelId;
     private String modelName;
-    private String vehicleType;
+    private VehicleType vehicleType;
     private Integer seatCount;
     private Double batteryCapacity;
     private Double rangeKm;
@@ -22,4 +24,6 @@ public class ModelResponse {
     private List<String> imagePaths;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Integer rentalCount;
+
 }

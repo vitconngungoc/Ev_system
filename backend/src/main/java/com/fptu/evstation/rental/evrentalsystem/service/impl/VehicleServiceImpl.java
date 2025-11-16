@@ -31,7 +31,6 @@ public class VehicleServiceImpl implements VehicleService {
 
 
     @Override
-    @Transactional
     public VehicleResponse createVehicle(CreateVehicleRequest request) {
         if (vehicleRepository.existsByLicensePlate(request.getLicensePlate())) {
             throw new RuntimeException("Biển số xe đã tồn tại!");
@@ -73,7 +72,6 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
-    @Transactional
     public Vehicle updateVehicle(Long id, UpdateVehicleDetailsRequest request) {
         Vehicle vehicle = vehicleRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -102,7 +100,6 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
-    @Transactional
     public void deleteVehicle(Long id) {
         Vehicle vehicle = getVehicleById(id);
         if (vehicle.getStatus() == VehicleStatus.RENTED) {
@@ -114,8 +111,9 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public Vehicle getVehicleById(Long vehicleId) {
         return vehicleRepository.findById(vehicleId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe với ID: " + vehicleId));
     }
+
     @Override
     public VehicleResponse getVehicleDetailsById(Long id) {
         Vehicle vehicle = vehicleRepository.findById(id)
@@ -148,8 +146,7 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
-    public List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, String vehicleType, String sortBy, String order) {
-        String trimmedVehicleType = (vehicleType != null) ? vehicleType.trim() : null;
+    public List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order) {
         String sortField = "createdAt".equalsIgnoreCase(sortBy) ? "createdAt" : "model.pricePerHour";
         Sort sort = Sort.by(Sort.Direction.fromString((order == null || order.isBlank()) ? "DESC" : order), sortField);
 
@@ -162,8 +159,8 @@ public class VehicleServiceImpl implements VehicleService {
             if (stationId != null) {
                 predicates.add(cb.equal(root.get("station").get("stationId"), stationId));
             }
-            if (trimmedVehicleType != null && !trimmedVehicleType.isBlank() && !"ALL".equalsIgnoreCase(trimmedVehicleType)) {
-                predicates.add(cb.equal(root.get("model").get("vehicleType"), trimmedVehicleType));
+            if (vehicleType != null) {
+                predicates.add(cb.equal(root.get("model").get("vehicleType"), vehicleType));
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));

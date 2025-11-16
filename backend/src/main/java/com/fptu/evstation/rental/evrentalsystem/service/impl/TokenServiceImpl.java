@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -21,29 +23,29 @@ public class TokenServiceImpl implements TokenService {
     private final AuthTokenRepository authTokenRepository;
 
     @Override
-    @Transactional
     public AuthToken createToken(User user) {
-        authTokenRepository.findByUser(user).ifPresent(existingToken -> {
-            if (existingToken.getExpiresAt() != null && existingToken.getExpiresAt().isAfter(Instant.now())) {
-                authTokenRepository.delete(existingToken);
-            }
-        });
+        List<AuthToken> existingTokens = authTokenRepository.findByUser(user);
+
+        if (!existingTokens.isEmpty()) {
+            authTokenRepository.deleteAll(existingTokens);
+        }
+
         AuthToken t = AuthToken.builder()
                 .token(UUID.randomUUID().toString())
                 .user(user)
-                .createdAt(Instant.now())
-                .expiresAt(Instant.now().plus(2, ChronoUnit.HOURS))
+                .createdAt(LocalDateTime.now())
+                .expiresAt(LocalDateTime.now().plus(2, ChronoUnit.HOURS))
                 .build();
         return authTokenRepository.save(t);
     }
 
     @Override
-    @Transactional
     public void deleteToken(String token) {
         AuthToken existingToken = authTokenRepository.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token không tồn tại hoặc đã hết hạn"));
         authTokenRepository.delete(existingToken);
     }
+
 
     @Override
     @Transactional
@@ -53,7 +55,7 @@ public class TokenServiceImpl implements TokenService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tài khoản của bạn đã đăng nhập ở nơi khác");
         }
         var t = tokenOpt.get();
-        if (t.getExpiresAt() == null || t.getExpiresAt().isBefore(Instant.now())) {
+        if (t.getExpiresAt() == null || t.getExpiresAt().isBefore(LocalDateTime.now())) {
             authTokenRepository.delete(t);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Phiên đăng nhập đã hết hạn");
         }

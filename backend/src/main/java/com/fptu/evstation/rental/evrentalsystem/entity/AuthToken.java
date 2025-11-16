@@ -1,12 +1,9 @@
 package com.fptu.evstation.rental.evrentalsystem.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
+import lombok.*;
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "AuthTokens")
@@ -25,6 +22,6 @@ public class AuthToken {
     @JoinColumn(name = "userId", nullable = false)
     private User user;
 
-    private Instant createdAt;
-    private Instant expiresAt;
+    private LocalDateTime createdAt;
+    private LocalDateTime expiresAt;
 }

@@ -1,10 +1,10 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
-
 import com.fptu.evstation.rental.evrentalsystem.dto.CreateModelRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.ModelResponse;
 import com.fptu.evstation.rental.evrentalsystem.dto.UpdateModelRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.Model;
+import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
 import com.fptu.evstation.rental.evrentalsystem.repository.ModelRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,11 +41,18 @@ public class ModelServiceImpl implements ModelService {
             throw new RuntimeException("Model đã tồn tại!");
         }
 
+        VehicleType type;
+        try {
+            type = VehicleType.valueOf(request.getVehicleType().toUpperCase());
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VehicleType không hợp lệ: " + request.getVehicleType());
+        }
+
         String imagePaths = saveImagesAndGetPaths(request.getModelName(), images, null);
 
         Model model = Model.builder()
                 .modelName(request.getModelName())
-                .vehicleType(request.getVehicleType())
+                .vehicleType(type)
                 .seatCount(request.getSeatCount())
                 .batteryCapacity(request.getBatteryCapacity())
                 .rangeKm(request.getRangeKm())
@@ -54,17 +62,21 @@ public class ModelServiceImpl implements ModelService {
                 .description(request.getDescription())
                 .imagePaths(imagePaths)
                 .build();
+
         return modelRepository.save(model);
     }
 
     @Override
     @Transactional
     public Model updateModel(Long id, UpdateModelRequest request, List<MultipartFile> newImages) {
-        Model model = getModelById(id);
+        Model model = modelRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy model ID " + id));
+
+
         String newPaths = saveImagesAndGetPaths(model.getModelName(), newImages, model.getImagePaths());
 
         if (request.getModelName() != null) model.setModelName(request.getModelName());
-        if (request.getVehicleType() != null) model.setVehicleType(request.getVehicleType());
+        if (request.getVehicleType() != null) model.setVehicleType(VehicleType.valueOf(request.getVehicleType().toUpperCase()));
         if (request.getSeatCount() != null) model.setSeatCount(request.getSeatCount());
         if (request.getBatteryCapacity() != null) model.setBatteryCapacity(request.getBatteryCapacity());
         if (request.getRangeKm() != null) model.setRangeKm(request.getRangeKm());
@@ -72,6 +84,7 @@ public class ModelServiceImpl implements ModelService {
         if (request.getDescription() != null) model.setDescription(request.getDescription());
         if (request.getPricePerHour() != null) model.setPricePerHour(request.getPricePerHour());
         if (request.getInitialValue() != null) model.setInitialValue(request.getInitialValue());
+        model.setUpdatedAt(LocalDateTime.now());
         model.setImagePaths(newPaths);
 
         return modelRepository.save(model);
@@ -169,6 +182,7 @@ public class ModelServiceImpl implements ModelService {
                 .imagePaths(paths)
                 .createdAt(model.getCreatedAt())
                 .updatedAt(model.getUpdatedAt())
+                .rentalCount(model.getRentalCount())
                 .build();
     }
 

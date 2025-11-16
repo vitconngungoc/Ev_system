@@ -4,6 +4,7 @@ import com.fptu.evstation.rental.evrentalsystem.dto.CreateVehicleRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.UpdateVehicleDetailsRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.VehicleResponse;
 import com.fptu.evstation.rental.evrentalsystem.entity.Vehicle;
+import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
 
 import java.util.List;
 
@@ -14,5 +15,5 @@ public interface VehicleService {
     void deleteVehicle(Long id);
     Vehicle getVehicleById(Long vehicleId);
     VehicleResponse getVehicleDetailsById(Long id);
-    List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, String vehicleType, String sortBy, String order);
+    List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order);
 }

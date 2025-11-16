@@ -32,7 +32,6 @@ public class UserServiceImpl implements UserService{
     private final Path uploadBaseDir = Paths.get(System.getProperty("user.dir"), "uploads", "verification");
 
     @Override
-    @Transactional
     public User register(RegisterRequest req) {
         if (req.getEmail() != null && userRepository.existsByEmail(req.getEmail())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email đã tồn tại");
@@ -58,6 +57,7 @@ public class UserServiceImpl implements UserService{
                 .verificationStatus(VerificationStatus.PENDING)
                 .status(AccountStatus.ACTIVE)
                 .role(role)
+                .cancellationCount(0)
                 .build();
         return userRepository.save(u);
     }
@@ -68,7 +68,6 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    @Transactional
     public User updateUserProfile(User user, UpdateProfileRequest req) {
         if (user.getStatus() != AccountStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản bị khóa không thể cập nhật thông tin.");
@@ -113,7 +112,6 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    @Transactional
     public String uploadVerificationDocuments(User user, UploadVerificationRequest req) {
         if (user.getStatus() != AccountStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản bị khóa không thể tải lên giấy tờ.");
@@ -134,7 +132,12 @@ public class UserServiceImpl implements UserService{
         user.setGplx(req.getGplx());
 
         Path userDir = uploadBaseDir.resolve("user_" + user.getUserId());
-
+        try {
+            Files.createDirectories(userDir);
+        } catch (IOException e) {
+            log.error("Không thể tạo thư mục cho người dùng: " + userDir, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi xử lý thư mục");
+        }
 
         if (user.getVerificationStatus() == VerificationStatus.REJECTED) {
             user.setRejectionReason(null);
@@ -153,11 +156,11 @@ public class UserServiceImpl implements UserService{
         validateFile(req.getGplxFile2(), "GPLX mặt sau");
         validateFile(req.getSelfieFile(), "Selfie");
 
-        user.setCccdPath1(saveFile(req.getCccdFile1(), user.getUserId(), "cccd_1"));
-        user.setCccdPath2(saveFile(req.getCccdFile2(), user.getUserId(), "cccd_2"));
-        user.setGplxPath1(saveFile(req.getGplxFile1(), user.getUserId(), "gplx_1"));
-        user.setGplxPath2(saveFile(req.getGplxFile2(), user.getUserId(), "gplx_2"));
-        user.setSelfiePath(saveFile(req.getSelfieFile(), user.getUserId(), "selfie"));
+        user.setCccdPath1(saveFile(req.getCccdFile1(), userDir, "cccd_1"));
+        user.setCccdPath2(saveFile(req.getCccdFile2(), userDir, "cccd_2"));
+        user.setGplxPath1(saveFile(req.getGplxFile1(), userDir, "gplx_1"));
+        user.setGplxPath2(saveFile(req.getGplxFile2(), userDir, "gplx_2"));
+        user.setSelfiePath(saveFile(req.getSelfieFile(), userDir, "selfie"));
 
         userRepository.save(user);
         return "Yêu cầu đã gửi. Vui lòng chờ nhân viên xác nhận trong vòng 24 giờ.";
@@ -187,27 +190,17 @@ public class UserServiceImpl implements UserService{
         }
     }
 
-    private String saveFile(MultipartFile file, Long userId, String baseFileName) {
+    private String saveFile(MultipartFile file, Path userDir, String baseFileName) {
         try {
-            Path userDir = uploadBaseDir.resolve("user_" + userId);
-            try {
-                Files.createDirectories(userDir);
-            } catch (IOException e) {
-                log.error("Không thể tạo thư mục cho người dùng: " + userDir, e);
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi xử lý thư mục");
-            }
-
             String originalFilename = file.getOriginalFilename();
             String extension = "";
             if (originalFilename != null && originalFilename.contains(".")) {
                 extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
             }
-
             String finalFileName = baseFileName + extension;
             Path filePath = userDir.resolve(finalFileName);
             file.transferTo(filePath);
-
-            return "/uploads/verification/user_" + userId + "/" + finalFileName;
+            return "/uploads/verification/" + userDir.getFileName().toString() + "/" + finalFileName;
         } catch (IOException e) {
             log.error("Lỗi khi lưu file: " + baseFileName, e);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu file");

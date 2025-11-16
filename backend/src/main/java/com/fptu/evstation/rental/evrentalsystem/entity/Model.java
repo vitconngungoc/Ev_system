@@ -24,14 +24,16 @@ public class Model {
     @Column(nullable = false, unique = true, columnDefinition = "nvarchar(100)")
     private String modelName;
 
-    @Column(columnDefinition = "nvarchar(50)")
-    private String vehicleType;
+    @Enumerated(EnumType.STRING)
+    @Column(length = 50)
+    private VehicleType vehicleType;
 
     private Integer seatCount;
     private Double batteryCapacity;
     private Double rangeKm;
     @Column(columnDefinition = "nvarchar(500)")
     private String features;
+
 
     @Column(nullable = false)
     private Double pricePerHour;
@@ -51,4 +53,6 @@ public class Model {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+    @Column(nullable = true)
+    private Integer rentalCount = 0;
 }
