@@ -42,6 +42,9 @@ public class VehicleServiceImpl implements VehicleService {
     private final ObjectMapper objectMapper;
     private final VehicleHistoryRepository historyRepository;
     private final UserRepository userRepository;
+    private final VehicleHistoryRepository historyRepository;
+    private final UserRepository userRepository;
+  
     private final Path damageReportDir = Paths.get(System.getProperty("user.dir"), "uploads", "damage_reports");
 
     @Override
@@ -209,6 +212,32 @@ public class VehicleServiceImpl implements VehicleService {
                     .imagePaths(getModelImagePaths(model))
                     .build();
         }).toList();
+    }
+
+    @Override
+    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
+
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
+        User staff = staffId != null ? userRepository.findById(staffId).orElse(null) : null;
+        User renter = renterId != null ? userRepository.findById(renterId).orElse(null) : null;
+        Station station = stationId != null ? stationService.getStationById(stationId) : null;
+
+        VehicleHistory history = VehicleHistory.builder()
+                .vehicle(vehicle)
+                .staff(staff)
+                .renter(renter)
+                .station(station)
+                .actionType(type)
+                .note(note)
+                .conditionBefore(conditionBefore)
+                .conditionAfter(conditionAfter)
+                .batteryLevel(battery)
+                .mileage(mileage)
+                .photoPaths(photoPathsJson)
+                .build();
+
+        return historyRepository.save(history);
     }
 
     private List<String> getModelImagePaths(Model model) {

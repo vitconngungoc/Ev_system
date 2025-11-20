@@ -16,7 +16,5 @@ public interface VehicleHistoryRepository extends JpaRepository<VehicleHistory, 
     List<VehicleHistory> findByRenter_UserIdOrderByActionTimeDesc(Long renterId);
     VehicleHistory findFirstByVehicleAndRenterAndActionTypeOrderByActionTimeDesc(Vehicle vehicle, User user, VehicleActionType vehicleActionType);
     VehicleHistory findFirstByVehicleOrderByActionTimeDesc(Vehicle vehicle);
-
-
-
+    VehicleHistory findFirstByRenterAndActionTypeOrderByActionTimeDesc(User renter, VehicleActionType actionType);
 }
