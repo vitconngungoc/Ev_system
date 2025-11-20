@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
@@ -42,6 +43,7 @@ public class BookingServiceImpl implements BookingService {
     private final ObjectMapper objectMapper;
     private final ContractService contractService;
     private final Random random = new Random();
+    private final StationService stationService;
 
     private final Path handoverPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "handover_photos");
 
@@ -467,5 +469,55 @@ public class BookingServiceImpl implements BookingService {
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh.");
         }
+    }
+    public Map<String, Object> getPeakHourStatistics(Long stationId, LocalDate fromDate, LocalDate toDate) {
+        LocalDateTime from = (fromDate != null) ? fromDate.atStartOfDay() : LocalDate.now().minusDays(7).atStartOfDay();
+        LocalDateTime to = (toDate != null) ? toDate.atTime(23, 59, 59) : LocalDate.now().atTime(23, 59, 59);
+
+        List<Booking> bookings;
+
+        if (stationId != null) {
+            Station station = stationService.getStationById(stationId);
+            bookings = bookingRepository.findAllByStationAndStartDateBetween(station, from, to);
+        } else {
+            bookings = bookingRepository.findAllByStartDateBetween(from, to);
+        }
+
+        Map<Integer, Long> countByHour = new HashMap<>();
+        for (Booking b : bookings) {
+            int hour = b.getStartDate().getHour();
+            countByHour.put(hour, countByHour.getOrDefault(hour, 0L) + 1);
+        }
+
+        long total = countByHour.values().stream().mapToLong(Long::longValue).sum();
+        int peakHour = countByHour.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(-1);
+
+        List<Map<String, Object>> hourlyStats = new ArrayList<>();
+        long peakValue = countByHour.getOrDefault(peakHour, 0L);
+
+        for (int i = 0; i < 24; i++) {
+            long rented = countByHour.getOrDefault(i, 0L);
+            double percent = (peakValue == 0) ? 0 : (rented * 100.0 / peakValue);
+
+            Map<String, Object> item = new HashMap<>();
+            item.put("hourRange", String.format("%02d:00 - %02d:00", i, (i + 1) % 24));
+            item.put("rentedVehicles", rented);
+            item.put("percentOfPeak", percent);
+            hourlyStats.add(item);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("scope", stationId == null ? "Tất cả các trạm" : "Trạm ID " + stationId);
+        result.put("fromDate", from.toLocalDate());
+        result.put("toDate", to.toLocalDate());
+        result.put("totalRentals", total);
+        result.put("peakHour", peakHour == -1 ? "Không có dữ liệu" :
+                String.format("%02d:00 - %02d:00", peakHour, (peakHour + 1) % 24));
+        result.put("data", hourlyStats);
+
+        return result;
     }
 }

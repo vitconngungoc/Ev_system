@@ -27,6 +27,7 @@ public class AdminStationController {
     private final ReportService reportService;
     private final UserService userService;
     private final UserRepository userRepository;
+    private final BookingService bookingService;
 
     // --- 1. Quản lý Trạm (Stations) ---
     @PostMapping("/stations")
@@ -279,5 +280,13 @@ public class AdminStationController {
     public ResponseEntity<?> getAllStationReports() {
         List<Map<String, Object>> reports = stationService.getAllStationReports();
         return ResponseEntity.ok(reports);
+    }
+    @GetMapping("/statistics/peak-hour")
+    public ResponseEntity<Map<String, Object>> getPeakHourStats(
+            @RequestParam(required = false) Long stationId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+        return ResponseEntity.ok(bookingService.getPeakHourStatistics(stationId, fromDate, toDate));
     }
 }
