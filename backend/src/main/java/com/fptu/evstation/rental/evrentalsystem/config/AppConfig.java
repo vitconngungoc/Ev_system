@@ -3,9 +3,11 @@ package com.fptu.evstation.rental.evrentalsystem.config;
 import com.fptu.evstation.rental.evrentalsystem.filter.AuthTokenFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -25,8 +27,9 @@ import java.util.Arrays;
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
+@EnableScheduling
 public class AppConfig implements WebMvcConfigurer {
-
+    @Autowired
     private final AuthTokenFilter authTokenFilter;
 
     @Override

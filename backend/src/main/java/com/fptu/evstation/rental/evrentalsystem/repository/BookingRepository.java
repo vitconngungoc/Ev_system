@@ -12,6 +12,7 @@ import java.util.List;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
+    List<Booking> findByStatusAndStartDateBefore(BookingStatus status, LocalDateTime expiryTime);
     long countByUserAndStatusIn(User user, List<BookingStatus> activeStatuses);
     List<Booking> findAllByInvoicePdfPathIsNotNullAndStation(Station station, Sort sort);
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, LocalDateTime cutoffTime);
