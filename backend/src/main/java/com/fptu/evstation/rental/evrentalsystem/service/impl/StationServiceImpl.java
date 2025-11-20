@@ -3,6 +3,7 @@ package com.fptu.evstation.rental.evrentalsystem.service.impl;
 import com.fptu.evstation.rental.evrentalsystem.dto.StationRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.UpdateStationRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.Station;
+import com.fptu.evstation.rental.evrentalsystem.entity.StationStatus;
 import com.fptu.evstation.rental.evrentalsystem.repository.StationRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
@@ -31,10 +32,9 @@ public class StationServiceImpl implements StationService {
                 .build();
         return stationRepository.save(station);
     }
-
     @Override
     public List<Station> getAllStations() {
-        return stationRepository.findAll();
+        return stationRepository.findByStatus(StationStatus.ACTIVE);
     }
 
     @Override
