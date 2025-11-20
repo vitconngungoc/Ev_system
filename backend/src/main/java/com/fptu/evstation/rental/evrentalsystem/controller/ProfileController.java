@@ -12,24 +12,26 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/profile")
+@RequestMapping("/api")
 public class ProfileController {
 
     private final AuthService authService;
     private final UserServiceImpl userService;
 
-    @GetMapping("/me")
+    @GetMapping("/profile/me")
     public ResponseEntity<User> getMyProfile(@RequestHeader("Authorization") String authHeader) {
         String token = authService.getTokenFromHeader(authHeader);
         User user = authService.validateTokenAndGetUser(token);
         return ResponseEntity.ok(user);
     }
 
-    @PutMapping("/update")
+    @PutMapping("/profile/update")
     public ResponseEntity<?> updateProfile(
             @RequestHeader("Authorization") String authHeader,
             @RequestBody UpdateProfileRequest req) {
@@ -39,7 +41,7 @@ public class ProfileController {
         return ResponseEntity.ok(Map.of("message", "Cập nhật thông tin thành công", "user", updatedUser));
     }
 
-    @PostMapping("/verification/upload")
+    @PostMapping("/profile/verification/upload")
     public ResponseEntity<?> uploadVerification(
             @RequestHeader("Authorization") String authHeader,
             @ModelAttribute UploadVerificationRequest req) {
@@ -49,14 +51,14 @@ public class ProfileController {
         return ResponseEntity.ok(Map.of("message", message));
     }
 
-    @GetMapping("/verification/status")
+    @GetMapping("/profile/verification/status")
     public ResponseEntity<?> getVerificationStatus(@RequestHeader("Authorization") String authHeader) {
         User user = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
         Map<String, Object> status = userService.getVerificationStatus(user);
         return ResponseEntity.ok(status);
     }
 
-    @GetMapping("/role")
+    @GetMapping("/profile/role")
     public ResponseEntity<?> getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
@@ -69,5 +71,22 @@ public class ProfileController {
         String role = user.getRole().getRoleName();
 
         return ResponseEntity.ok(new ProfileResponse(fullName, role));
+    }
+
+    @GetMapping("/utils/banks")
+    public ResponseEntity<List<String>> getBankList() {
+        List<String> bankList = Arrays.asList(
+                "Vietcombank",
+                "Techcombank",
+                "MB Bank",
+                "VietinBank",
+                "BIDV",
+                "ACB",
+                "VPBank",
+                "Sacombank",
+                "TPBank",
+                "Agribank"
+        );
+        return ResponseEntity.ok(bankList);
     }
 }
