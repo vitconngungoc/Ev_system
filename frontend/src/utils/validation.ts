@@ -1,67 +1,22 @@
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const PHONE_REGEX = /^(84|0[35789])[0-9]{8}$/;
-export const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/;
-
-export interface ValidationResult {
-  isValid: boolean;
-  message?: string;
-}
-
-export const validateEmail = (email: string): ValidationResult => {
-  if (!email) {
-    return { isValid: false, message: 'Email is required' };
-  }
-  if (!EMAIL_REGEX.test(email)) {
-    return { isValid: false, message: 'Invalid email format' };
-  }
-  return { isValid: true };
+// Form validation utilities
+export const validateEmail = (email: string): { valid: boolean; error?: string } => {
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email) return { valid: false, error: 'Email không được để trống' };
+  if (!regex.test(email)) return { valid: false, error: 'Email không hợp lệ' };
+  return { valid: true };
 };
 
-export const validatePhone = (phone: string): ValidationResult => {
-  if (!phone) {
-    return { isValid: false, message: 'Phone number is required' };
-  }
-  if (!PHONE_REGEX.test(phone.trim())) {
-    return { isValid: false, message: 'Invalid phone number format' };
-  }
-  return { isValid: true };
+export const validatePhone = (phone: string): { valid: boolean; error?: string } => {
+  const regex = /^(0|\+84)[0-9]{9}$/;
+  if (!phone) return { valid: false, error: 'Số điện thoại không được để trống' };
+  if (!regex.test(phone)) return { valid: false, error: 'Số điện thoại không hợp lệ' };
+  return { valid: true };
 };
 
-export const validatePassword = (password: string): ValidationResult => {
-  if (!password) {
-    return { isValid: false, message: 'Password is required' };
-  }
-  if (password.length < 6) {
-    return { isValid: false, message: 'Password must be at least 6 characters' };
-  }
-  if (!PASSWORD_REGEX.test(password)) {
-    return { 
-      isValid: false, 
-      message: 'Password must contain uppercase, lowercase, number and special character' 
-    };
-  }
-  return { isValid: true };
-};
-
-export const validateConfirmPassword = (
-  password: string,
-  confirmPassword: string
-): ValidationResult => {
-  if (!confirmPassword) {
-    return { isValid: false, message: 'Please confirm your password' };
-  }
-  if (password !== confirmPassword) {
-    return { isValid: false, message: 'Passwords do not match' };
-  }
-  return { isValid: true };
-};
-
-export const validateFullName = (fullName: string): ValidationResult => {
-  if (!fullName) {
-    return { isValid: false, message: 'Full name is required' };
-  }
-  if (fullName.trim().length < 2) {
-    return { isValid: false, message: 'Full name must be at least 2 characters' };
-  }
-  return { isValid: true };
+export const validatePassword = (password: string): { valid: boolean; error?: string } => {
+  if (!password) return { valid: false, error: 'Mật khẩu không được để trống' };
+  if (password.length < 8) return { valid: false, error: 'Mật khẩu phải có ít nhất 8 ký tự' };
+  if (!/[A-Z]/.test(password)) return { valid: false, error: 'Mật khẩu phải có ít nhất 1 chữ hoa' };
+  if (!/[0-9]/.test(password)) return { valid: false, error: 'Mật khẩu phải có ít nhất 1 số' };
+  return { valid: true };
 };
