@@ -16,4 +16,5 @@ public interface VehicleService {
     Vehicle getVehicleById(Long vehicleId);
     VehicleResponse getVehicleDetailsById(Long id);
     List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order);
+    Vehicle saveVehicle(Vehicle vehicle);
 }

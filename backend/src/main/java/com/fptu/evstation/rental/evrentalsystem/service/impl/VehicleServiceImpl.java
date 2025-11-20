@@ -100,6 +100,12 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
+    @Transactional
+    public Vehicle saveVehicle(Vehicle vehicle) {
+        return vehicleRepository.save(vehicle);
+    }
+
+    @Override
     public void deleteVehicle(Long id) {
         Vehicle vehicle = getVehicleById(id);
         if (vehicle.getStatus() == VehicleStatus.RENTED) {
