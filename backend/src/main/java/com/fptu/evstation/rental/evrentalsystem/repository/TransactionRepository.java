@@ -10,4 +10,11 @@ import java.util.List;
 
 @Repository
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+    List<Transaction> findByBooking(Booking booking);
+    List<Transaction> findByTransactionDateBetween(LocalDateTime from, LocalDateTime to);
+    List<Transaction> findByBooking_Vehicle_Station_StationIdAndTransactionDateBetween(
+            Long stationId,
+            LocalDateTime from,
+            LocalDateTime to
+    );
 }
