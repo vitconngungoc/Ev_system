@@ -1,18 +1,29 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fptu.evstation.rental.evrentalsystem.dto.BillResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.PenaltyCalculationRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
-import com.fptu.evstation.rental.evrentalsystem.repository.BookingRepository;
-import com.fptu.evstation.rental.evrentalsystem.repository.TransactionRepository;
+import com.fptu.evstation.rental.evrentalsystem.repository.*;
 import com.fptu.evstation.rental.evrentalsystem.service.PaymentService;
 import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
+import com.fptu.evstation.rental.evrentalsystem.service.util.QrCodeService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 
 @Service
@@ -20,8 +31,182 @@ import java.time.LocalDateTime;
 @Slf4j
 public class PaymentServiceImpl implements PaymentService {
     private final BookingRepository bookingRepository;
+    private final PenaltyFeeRepository penaltyFeeRepository;
+    private final TransactionDetailRepository transactionDetailRepository;
     private final TransactionRepository transactionRepository;
     private final VehicleService vehicleService;
+    private final QrCodeService qrCodeService;
+
+    private final Path adjustmentPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "adjustments");
+    private final ObjectMapper objectMapper;
+
+    @Transactional
+    public BillResponse calculateFinalBill(User staff, Long bookingId, PenaltyCalculationRequest req) {
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking"));
+
+        List<TransactionDetail> oldDetails = transactionDetailRepository.findByBooking(booking);
+        for (TransactionDetail oldDetail : oldDetails) {
+            if (oldDetail.getPenaltyFee() != null &&
+                    oldDetail.getPenaltyFee().getIsAdjustment() != null &&
+                    oldDetail.getPenaltyFee().getIsAdjustment() &&
+                    oldDetail.getPhotoPaths() != null) {
+
+                try {
+                    List<String> oldPhotoPaths = objectMapper.readValue(oldDetail.getPhotoPaths(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+                    for (String oldPath : oldPhotoPaths) {
+                        if (oldPath == null || oldPath.isBlank()) continue;
+                        Path oldPhotoFile = Paths.get(System.getProperty("user.dir"), oldPath.substring(1));
+                        Files.deleteIfExists(oldPhotoFile);
+                    }
+                } catch (Exception e) {
+                    log.warn("Không thể xóa ảnh adjustment cũ cho booking {}: {}", bookingId, e.getMessage());
+                }
+            }
+        }
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (booking.getStatus() != BookingStatus.RENTING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chỉ có thể tính phí khi đơn đang ở trạng thái RENTING.");
+        }
+
+        LocalDateTime actualEndDate = LocalDateTime.now();
+        Vehicle vehicle = booking.getVehicle();
+        Model model = vehicle.getModel();
+
+        Duration actualDuration = Duration.between(booking.getStartDate(), actualEndDate);
+        double actualHours = actualDuration.toMinutes() / 60.0;
+        double totalBaseFee = model.getPricePerHour() * actualHours;
+
+        double lateFee = 0.0;
+        if (actualEndDate.isAfter(booking.getEndDate())) {
+            Duration lateDuration = Duration.between(booking.getEndDate(), actualEndDate);
+            double lateHours = lateDuration.toMinutes() / 60.0;
+            double lateFeePerHour = 100_000;
+            lateFee = lateHours * lateFeePerHour;
+        }
+        double finalBaseFee = Math.round(totalBaseFee + lateFee);
+
+        transactionDetailRepository.deleteByBooking(booking);
+        double totalPositivePenalty = 0.0;
+        double totalDiscount = 0.0;
+
+        List<BillResponse.FeeItem> feeItemsForBill = new ArrayList<>();
+        if (req.getSelectedFees() != null && !req.getSelectedFees().isEmpty()) {
+            for (PenaltyCalculationRequest.SelectedFee selected : req.getSelectedFees()) {
+                PenaltyFee feeType = penaltyFeeRepository.findById(selected.getFeeId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy loại phí với ID: " + selected.getFeeId()));
+                double appliedAmount = feeType.getFixedAmount() * selected.getQuantity();
+                totalPositivePenalty += appliedAmount;
+
+                TransactionDetail detail = TransactionDetail.builder()
+                        .booking(booking)
+                        .penaltyFee(feeType)
+                        .appliedAmount(appliedAmount)
+                        .staffNote(feeType.getFeeName() + " (Số lượng: " + selected.getQuantity() + ")")
+                        .build();
+                transactionDetailRepository.save(detail);
+
+                feeItemsForBill.add(BillResponse.FeeItem.builder()
+                        .feeName(detail.getStaffNote())
+                        .amount(appliedAmount)
+                        .staffNote(staff.getFullName() + " (Staff) đã áp dụng.")
+                        .build());
+            }
+        }
+
+        if (req.getCustomFee() != null && req.getCustomFee().getAmount() != null && req.getCustomFee().getAmount() != 0) {
+            PenaltyCalculationRequest.CustomFee custom = req.getCustomFee();
+
+            if (custom.getAmount() < 0) {
+                totalDiscount += Math.abs(custom.getAmount());
+            } else {
+                totalPositivePenalty += custom.getAmount();
+            }
+
+            List<String> photoPaths = new ArrayList<>();
+            if (req.getCustomFee().getPhotoFiles() != null && !req.getCustomFee().getPhotoFiles().isEmpty()) {
+                for (int i = 0; i < req.getCustomFee().getPhotoFiles().size(); i++) {
+                    MultipartFile photo = req.getCustomFee().getPhotoFiles().get(i);
+                    String savedPath = saveAdjustmentPhoto(photo, bookingId, i + 1);
+                    photoPaths.add(savedPath);
+                }
+            }
+
+            String photoPathsJson = null;
+            try {
+                photoPathsJson = objectMapper.writeValueAsString(photoPaths);
+            } catch (Exception e) {
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi khi xử lý ảnh phạt.");
+            }
+
+
+            PenaltyFee adjustmentFeeType = penaltyFeeRepository.findByIsAdjustmentTrue()
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Thiếu cấu hình phí tùy chỉnh trong DB."));
+
+            TransactionDetail detail = TransactionDetail.builder()
+                    .booking(booking)
+                    .penaltyFee(adjustmentFeeType)
+                    .appliedAmount(custom.getAmount())
+                    .staffNote(custom.getFeeName())
+                    .adjustmentNote(custom.getDescription())
+                    .photoPaths(photoPathsJson)
+                    .build();
+            transactionDetailRepository.save(detail);
+
+            feeItemsForBill.add(BillResponse.FeeItem.builder()
+                    .feeName(custom.getFeeName())
+                    .amount(custom.getAmount())
+                    .staffNote(staff.getFullName() + " (Staff) đã thêm phí: " + custom.getFeeName())
+                    .adjustmentNote(custom.getDescription())
+                    .build());
+        }
+
+        double totalDebit = finalBaseFee + totalPositivePenalty;
+
+        double downpayPaid_2_percent = booking.getRentalDeposit() != null ? booking.getRentalDeposit() : 0;
+        double downpayPaid_500k = booking.isReservationDepositPaid() ? 500000.0 : 0.0;
+        double totalDownpayPaid = downpayPaid_2_percent + downpayPaid_500k;
+
+        double totalCredit = totalDownpayPaid + totalDiscount;
+
+        double netSettlement = totalDebit - totalCredit;
+
+        booking.setFinalFee(totalDebit);
+        bookingRepository.save(booking);
+
+        double paymentDue = Math.max(0, netSettlement);
+        double refundToCustomer = Math.max(0, -netSettlement);
+
+        String qrCodeBase64 = (paymentDue > 0) ? qrCodeService.generateQrCodeBase64(paymentDue, bookingId) : null;
+
+        BillResponse billResponse = BillResponse.builder()
+                .bookingId(bookingId)
+                .userName(booking.getUser().getFullName())
+                .dateTime(actualEndDate)
+                .baseRentalFee(finalBaseFee)
+                .totalPenaltyFee(totalPositivePenalty)
+                .downpayPaid(totalDownpayPaid)
+                .totalDiscount(totalDiscount)
+                .paymentDue(paymentDue)
+                .refundToCustomer(refundToCustomer)
+                .feeItems(feeItemsForBill)
+                .qrCodeUrl(qrCodeBase64)
+                .build();
+
+        return billResponse;
+    }
 
     @Override
     @Transactional
@@ -154,5 +339,30 @@ public class PaymentServiceImpl implements PaymentService {
                 .staffNote(note)
                 .build();
         transactionRepository.save(transaction);
+    }
+
+    @Transactional
+    protected String saveAdjustmentPhoto(MultipartFile file, Long bookingId, int index) {
+        if (file == null || file.isEmpty()) return null;
+        try {
+            Path bookingDir = adjustmentPhotoDir.resolve("booking_" + bookingId);
+            Files.createDirectories(bookingDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+
+            String fileName = String.format("adjustment-%d%s", index, extension);
+            Path filePath = bookingDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            return "/uploads/adjustments/booking_" + bookingId + "/" + fileName;
+
+        } catch (IOException e) {
+            log.error("Lỗi khi lưu ảnh adjustment", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu file ảnh.");
+        }
     }
 }

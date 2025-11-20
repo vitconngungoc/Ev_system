@@ -12,4 +12,5 @@ public interface PenaltyFeeRepository extends JpaRepository<PenaltyFee, Long> {
     boolean existsByFeeName(String feeName);
     Optional<PenaltyFee> findById(Long feeId);
     List<PenaltyFee> findByIsAdjustmentIsFalse();
+    Optional<PenaltyFee> findByIsAdjustmentTrue();
 }
