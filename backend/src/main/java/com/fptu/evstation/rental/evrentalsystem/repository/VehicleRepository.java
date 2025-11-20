@@ -21,5 +21,9 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long>, JpaSpec
     List<Vehicle> findByStation(Station station, Sort sort);
     @Query("SELECT v.status, COUNT(v) FROM Vehicle v WHERE v.station = :station GROUP BY v.status")
     List<Object[]> countVehiclesByStatus(@Param("station") Station station);
+    @Query("""
+        SELECT v.station.stationId, v.station.name, v.status, COUNT(v)
+        FROM Vehicle v
+        GROUP BY v.station.stationId, v.station.name, v.status""")
     List<Object[]> getVehicleStatsGroupedByStation();
 }

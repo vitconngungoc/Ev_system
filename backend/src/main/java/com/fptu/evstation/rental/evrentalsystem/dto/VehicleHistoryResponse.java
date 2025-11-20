@@ -21,7 +21,7 @@ public class VehicleHistoryResponse {
     private String stationName;
     private String actionType;
     private String note;
-    private Double batteryLevel;
+    private Integer batteryLevel;
     private Double mileage;
     private LocalDateTime actionTime;
     private String conditionBefore;

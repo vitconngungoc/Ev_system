@@ -11,7 +11,9 @@ import com.fptu.evstation.rental.evrentalsystem.entity.VehicleHistory;
 import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public interface VehicleService {
 
@@ -24,9 +26,9 @@ public interface VehicleService {
     VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson);
     Vehicle saveVehicle(Vehicle vehicle);
     Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request);
-    VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Double battery, Double mileage, String photoPathsJson);
     Vehicle updateVehicleDetails(User staff, Long vehicleId, UpdateVehicleDetailsRequest request);
     List<VehicleHistoryResponse> getVehicleHistory(Long stationId, LocalDate from, LocalDate to, VehicleType vehicleType, String licensePlate);
     List<VehicleHistoryResponse> getHistoryByVehicle(Long vehicleId);
     List<VehicleHistoryResponse> getHistoryByRenter(Long renterId);
+    Map<String, Object> checkVehicleSchedule(Long vehicleId, LocalDateTime startTime, LocalDateTime endTime);
 }
