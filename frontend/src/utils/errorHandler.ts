@@ -1,55 +1,39 @@
-export class ApiError extends Error {
-  constructor(
-    public statusCode: number,
-    message: string,
-    public errors?: any
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
+// API error handling utilities
+export interface ApiError {
+  status: number;
+  message: string;
+  code?: string;
 }
 
-export const handleApiError = (error: any): string => {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  
+export const handleApiError = (error: any): ApiError => {
   if (error.response) {
-    const status = error.response.status;
-    const data = error.response.data;
-    
-    switch (status) {
-      case 400:
-        return data?.message || 'Invalid request';
-      case 401:
-        return 'Unauthorized. Please login again';
-      case 403:
-        return 'Access denied';
-      case 404:
-        return 'Resource not found';
-      case 409:
-        return data?.message || 'Conflict error';
-      case 422:
-        return data?.message || 'Validation error';
-      case 500:
-        return 'Server error. Please try again later';
-      default:
-        return data?.message || 'An error occurred';
-    }
+    return {
+      status: error.response.status,
+      message: error.response.data?.message || 'Đã xảy ra lỗi',
+      code: error.response.data?.code,
+    };
   }
   
   if (error.request) {
-    return 'Network error. Please check your connection';
+    return {
+      status: 0,
+      message: 'Không thể kết nối đến máy chủ',
+    };
   }
   
-  return error.message || 'An unexpected error occurred';
+  return {
+    status: 500,
+    message: error.message || 'Đã xảy ra lỗi không xác định',
+  };
 };
 
-export const isAuthError = (error: any): boolean => {
-  return error?.response?.status === 401 || error?.response?.status === 403;
-};
-
-export const shouldRetry = (error: any): boolean => {
-  const status = error?.response?.status;
-  return status >= 500 || status === 408 || status === 429;
+export const getErrorMessage = (status: number): string => {
+  const messages: Record<number, string> = {
+    400: 'Yêu cầu không hợp lệ',
+    401: 'Chưa đăng nhập',
+    403: 'Không có quyền truy cập',
+    404: 'Không tìm thấy',
+    500: 'Lỗi máy chủ',
+  };
+  return messages[status] || 'Đã xảy ra lỗi';
 };
