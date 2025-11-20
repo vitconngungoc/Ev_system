@@ -22,6 +22,10 @@ public interface VehicleService {
     Vehicle getVehicleById(Long vehicleId);
     VehicleResponse getVehicleDetailsById(Long id);
     List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order);
+
+    Vehicle saveVehicle(Vehicle vehicle);
+    Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request);
+    VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson);
     List<VehicleResponse> getVehiclesByModelAndStation(Long modelId, Long stationId, User requestingUser);
     VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson);
     Vehicle saveVehicle(Vehicle vehicle);
