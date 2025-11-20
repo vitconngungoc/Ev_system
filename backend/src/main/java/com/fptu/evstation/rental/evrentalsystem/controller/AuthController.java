@@ -6,10 +6,14 @@ import com.fptu.evstation.rental.evrentalsystem.dto.RegisterRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.service.AuthService;
 import com.fptu.evstation.rental.evrentalsystem.service.UserService;
+import com.fptu.evstation.rental.evrentalsystem.service.util.EmailService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
 import java.util.Map;
 
 @RestController
@@ -18,7 +22,7 @@ import java.util.Map;
 public class AuthController {
     private final AuthService authService;
     private final UserService userService;
-
+    private final EmailService emailService;
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         User user = userService.register(req);
@@ -39,5 +43,24 @@ public class AuthController {
         String token = authService.getTokenFromHeader(authHeader);
         authService.logout(token);
         return ResponseEntity.ok(Map.of("message", "Đã đăng xuất thành công"));
+    }
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> payload) {
+        String email = payload.get("email");
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email không được để trống");
+        }
+        emailService.createPasswordResetToken(email);
+        return ResponseEntity.ok(Map.of("message", "OTP đã được gửi tới email (có hiệu lực 5 phút)"));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> payload) {
+        String otp = payload.get("otp");
+        String newPassword = payload.get("newPassword");
+        String confirmPassword = payload.get("confirmPassword");
+
+        emailService.resetPasswordWithOtp(otp, newPassword, confirmPassword);
+        return ResponseEntity.ok(Map.of("message", "Đặt lại mật khẩu thành công"));
     }
 }
