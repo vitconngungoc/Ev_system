@@ -1,0 +1,21 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Build artifacts
+target/
+build/
+dist/
+*.jar
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+HELP.md
+
+# Dependencies
+node_modules/

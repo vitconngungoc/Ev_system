@@ -43,9 +43,10 @@ public class Station {
 
     @Column(length = 20)
     private String hotline;
-    @Builder.Default
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status = "ACTIVE";
+    private StationStatus status = StationStatus.ACTIVE;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

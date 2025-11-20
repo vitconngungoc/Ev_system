@@ -15,8 +15,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 
 @Configuration
@@ -25,6 +28,17 @@ import java.util.Arrays;
 public class AppConfig implements WebMvcConfigurer {
 
     private final AuthTokenFilter authTokenFilter;
+
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        Path uploadsDir = Paths.get(System.getProperty("user.dir"), "uploads").toAbsolutePath();
+        String uploadPath = uploadsDir.toString().replace("\\", "/") + "/";
+
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations("file:" + uploadPath)
+                .setCachePeriod(0)
+                .resourceChain(true);
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -50,7 +64,9 @@ public class AppConfig implements WebMvcConfigurer {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/profile/**").authenticated()
                         .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
+                        .requestMatchers("/uploads/**").permitAll()
                         .anyRequest().authenticated()
                 );
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);

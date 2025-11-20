@@ -1,8 +1,8 @@
 package com.fptu.evstation.rental.evrentalsystem.entity;
 
 public enum VehicleStatus {
-    AVAILABLE,
     RESERVED,
+    AVAILABLE,
     RENTED,
     UNAVAILABLE,
 }
