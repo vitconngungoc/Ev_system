@@ -26,7 +26,7 @@ public class PaymentConfirmationRequest {
     private String conditionAfter;
 
     @NotNull(message = "Mức pin khi trả xe không được để trống")
-    private Integer battery;
+    private Double battery;
 
     @NotNull(message = "Số km khi trả xe không được để trống")
     private Double mileage;

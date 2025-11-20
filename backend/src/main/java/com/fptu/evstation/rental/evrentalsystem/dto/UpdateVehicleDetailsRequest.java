@@ -18,7 +18,7 @@ public class UpdateVehicleDetailsRequest {
     private Double currentMileage;
     @Min(value = 0, message = "Mức pin không thể âm")
     @Max(value = 100, message = "Mức pin không thể lớn hơn 100")
-    private Integer batteryLevel;
+    private Double batteryLevel;
     private VehicleCondition newCondition;
     private VehicleStatus status;
 }

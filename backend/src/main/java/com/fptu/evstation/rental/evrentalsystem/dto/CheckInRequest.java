@@ -23,7 +23,7 @@ public class CheckInRequest {
     private String conditionBefore;
 
     @NotNull(message = "Mức pin (trước khi giao) không được để trống")
-    private Integer battery;
+    private Double battery;
 
     @NotNull(message = "Số km (trước khi giao) không được để trống")
     private Double mileage;

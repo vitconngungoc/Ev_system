@@ -3,6 +3,7 @@ package com.fptu.evstation.rental.evrentalsystem.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.repository.BookingRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleHistoryRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
@@ -27,9 +28,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -42,9 +45,7 @@ public class VehicleServiceImpl implements VehicleService {
     private final ObjectMapper objectMapper;
     private final VehicleHistoryRepository historyRepository;
     private final UserRepository userRepository;
-    private final VehicleHistoryRepository historyRepository;
-    private final UserRepository userRepository;
-  
+    private final BookingRepository bookingRepository;
     private final Path damageReportDir = Paths.get(System.getProperty("user.dir"), "uploads", "damage_reports");
 
     @Override
@@ -214,31 +215,7 @@ public class VehicleServiceImpl implements VehicleService {
         }).toList();
     }
 
-    @Override
-    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
 
-        Vehicle vehicle = vehicleRepository.findById(vehicleId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
-        User staff = staffId != null ? userRepository.findById(staffId).orElse(null) : null;
-        User renter = renterId != null ? userRepository.findById(renterId).orElse(null) : null;
-        Station station = stationId != null ? stationService.getStationById(stationId) : null;
-
-        VehicleHistory history = VehicleHistory.builder()
-                .vehicle(vehicle)
-                .staff(staff)
-                .renter(renter)
-                .station(station)
-                .actionType(type)
-                .note(note)
-                .conditionBefore(conditionBefore)
-                .conditionAfter(conditionAfter)
-                .batteryLevel(battery)
-                .mileage(mileage)
-                .photoPaths(photoPathsJson)
-                .build();
-
-        return historyRepository.save(history);
-    }
 
     private List<String> getModelImagePaths(Model model) {
         if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {
@@ -481,5 +458,24 @@ public class VehicleServiceImpl implements VehicleService {
                         .actionTime(h.getActionTime())
                         .build())
                 .collect(Collectors.toList());
+    }
+    @Override
+    public Map<String, Object> checkVehicleSchedule(Long vehicleId, LocalDateTime startTime, LocalDateTime endTime) {
+        Vehicle vehicle = getVehicleById(vehicleId);
+
+        if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+            return Map.of("isAvailable", false, "message", "Xe này hiện không còn khả dụng.");
+        }
+
+        List<BookingStatus> excludedStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                vehicle, startTime, endTime, excludedStatuses
+        );
+
+        if (conflicts > 0) {
+            return Map.of("isAvailable", false, "message", "Xe đã có lịch đặt trong khung giờ này.");
+        }
+
+        return Map.of("isAvailable", true, "message", "Xe khả dụng trong khung giờ này.");
     }
 }
