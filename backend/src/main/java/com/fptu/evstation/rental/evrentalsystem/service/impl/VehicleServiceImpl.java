@@ -1,10 +1,7 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fptu.evstation.rental.evrentalsystem.dto.CreateVehicleRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.ReportDamageRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateVehicleDetailsRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.VehicleResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleHistoryRepository;
@@ -12,6 +9,8 @@ import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
 import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +26,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -345,5 +347,110 @@ public class VehicleServiceImpl implements VehicleService {
                 .build();
 
         return historyRepository.save(history);
+    }
+    @Override
+    public List<VehicleHistoryResponse> getVehicleHistory(Long stationId, LocalDate from, LocalDate to, VehicleType vehicleType, String licensePlate) {
+        Sort sort = Sort.by(Sort.Direction.DESC, "actionTime");
+
+        Specification<VehicleHistory> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (stationId != null) {
+                predicates.add(cb.equal(root.get("station").get("stationId"), stationId));
+            }
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("actionTime"), from.atStartOfDay()));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("actionTime"), to.atTime(LocalTime.MAX)));
+            }
+            if (vehicleType != null) {
+                Join<VehicleHistory, Vehicle> vehicleJoin = root.join("vehicle", JoinType.INNER);
+                Join<Vehicle, Model> modelJoin = vehicleJoin.join("model", JoinType.INNER);
+                predicates.add(cb.equal(modelJoin.get("vehicleType"), vehicleType));
+            }
+            if (licensePlate != null && !licensePlate.isBlank()) {
+                Join<VehicleHistory, Vehicle> vehicleJoin = root.getJoins().stream()
+                        .filter(j -> j.getAttribute().getName().equals("vehicle"))
+                        .map(j -> (Join<VehicleHistory, Vehicle>) j)
+                        .findFirst()
+                        .orElseGet(() -> root.join("vehicle", JoinType.INNER));
+
+                predicates.add(cb.like(cb.lower(vehicleJoin.get("licensePlate")), "%" + licensePlate.toLowerCase() + "%"));
+            }
+
+            if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                root.fetch("vehicle", JoinType.LEFT).fetch("model", JoinType.LEFT);
+                root.fetch("staff", JoinType.LEFT);
+                root.fetch("renter", JoinType.LEFT);
+                root.fetch("station", JoinType.LEFT);
+                query.distinct(true);
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        List<VehicleHistory> histories = historyRepository.findAll(spec, sort);
+
+        return histories.stream()
+                .map(h -> VehicleHistoryResponse.builder()
+                        .historyId(h.getHistoryId())
+                        .vehicleType(h.getVehicle() != null ? h.getVehicle().getModel().getVehicleType() : null)
+                        .licensePlate(h.getVehicle() != null ? h.getVehicle().getLicensePlate() : null)
+                        .staffName(h.getStaff() != null ? h.getStaff().getFullName() : null)
+                        .renterName(h.getRenter() != null ? h.getRenter().getFullName() : null)
+                        .stationName(h.getStation() != null ? h.getStation().getName() : null)
+                        .actionType(h.getActionType().name())
+                        .note(h.getNote())
+                        .conditionBefore(h.getConditionBefore())
+                        .conditionAfter(h.getConditionAfter())
+                        .batteryLevel(h.getBatteryLevel())
+                        .mileage(h.getMileage())
+                        .photoPath(h.getPhotoPaths())
+                        .actionTime(h.getActionTime())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<VehicleHistoryResponse> getHistoryByVehicle(Long vehicleId) {
+        return historyRepository.findByVehicle_VehicleIdOrderByActionTimeDesc(vehicleId)
+                .stream()
+                .map(h -> VehicleHistoryResponse.builder()
+                        .historyId(h.getHistoryId())
+                        .vehicleType(h.getVehicle().getModel().getVehicleType())
+                        .licensePlate(h.getVehicle().getLicensePlate())
+                        .staffName(h.getStaff() != null ? h.getStaff().getFullName() : null)
+                        .renterName(h.getRenter() != null ? h.getRenter().getFullName() : null)
+                        .stationName(h.getStation() != null ? h.getStation().getName() : null)
+                        .actionType(h.getActionType().name())
+                        .note(h.getNote())
+                        .batteryLevel(h.getBatteryLevel())
+                        .mileage(h.getMileage())
+                        .photoPath(h.getPhotoPaths())
+                        .actionTime(h.getActionTime())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<VehicleHistoryResponse> getHistoryByRenter(Long renterId) {
+        return historyRepository.findByRenter_UserIdOrderByActionTimeDesc(renterId)
+                .stream()
+                .map(h -> VehicleHistoryResponse.builder()
+                        .historyId(h.getHistoryId())
+                        .vehicleType(h.getVehicle().getModel().getVehicleType())
+                        .licensePlate(h.getVehicle().getLicensePlate())
+                        .staffName(h.getStaff() != null ? h.getStaff().getFullName() : null)
+                        .renterName(h.getRenter() != null ? h.getRenter().getFullName() : null)
+                        .stationName(h.getStation() != null ? h.getStation().getName() : null)
+                        .actionType(h.getActionType().name())
+                        .note(h.getNote())
+                        .batteryLevel(h.getBatteryLevel())
+                        .mileage(h.getMileage())
+                        .photoPath(h.getPhotoPaths())
+                        .actionTime(h.getActionTime())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

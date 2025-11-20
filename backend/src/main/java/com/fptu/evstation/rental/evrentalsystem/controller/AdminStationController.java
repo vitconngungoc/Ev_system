@@ -244,5 +244,35 @@ public class AdminStationController {
         User updatedUser = userService.updateUserStation(userId, stationId);
         return ResponseEntity.ok(updatedUser);
     }
+    @GetMapping("/vehicle-history")
+    public ResponseEntity<List<VehicleHistoryResponse>> getAllVehicleHistory(
+            @RequestParam(required = false) Long stationId,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) VehicleType vehicleType,
+            @RequestParam(required = false) String licensePlate
+    ) {
+        List<VehicleHistoryResponse> historyList = vehicleService.getVehicleHistory(
+                stationId, from, to, vehicleType, licensePlate
+        );
+        return ResponseEntity.ok(historyList);
+    }
 
+    @GetMapping("/vehicle-history/vehicle/{vehicleId}")
+    public ResponseEntity<List<VehicleHistoryResponse>> getHistoryByVehicle(
+            @PathVariable Long vehicleId
+    ) {
+        List<VehicleHistoryResponse> historyList = vehicleService.getHistoryByVehicle(vehicleId);
+        return ResponseEntity.ok(historyList);
+    }
+
+    @GetMapping("/vehicle-history/renter/{renterId}")
+    public ResponseEntity<List<VehicleHistoryResponse>> getHistoryByRenter(
+            @PathVariable Long renterId
+    ) {
+        List<VehicleHistoryResponse> historyList = vehicleService.getHistoryByRenter(renterId);
+        return ResponseEntity.ok(historyList);
+    }
 }
