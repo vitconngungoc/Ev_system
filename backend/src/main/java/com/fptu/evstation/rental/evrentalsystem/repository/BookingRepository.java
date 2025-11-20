@@ -1,6 +1,7 @@
 package com.fptu.evstation.rental.evrentalsystem.repository;
 
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,6 +12,7 @@ import java.util.List;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
+    long countByUserAndStatusIn(User user, List<BookingStatus> activeStatuses);
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, LocalDateTime cutoffTime);
 
     @Query("SELECT COUNT(b) FROM Booking b " +
@@ -22,4 +24,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime,
             @Param("excludedStatuses") List<BookingStatus> excludedStatuses);
+
+    @Query("SELECT b FROM Booking b " +
+            "LEFT JOIN FETCH b.user " +
+            "LEFT JOIN FETCH b.vehicle v " +
+            "LEFT JOIN FETCH v.model " +
+            "WHERE b.user = :renter")
+    List<Booking> findByUserWithDetails(@Param("renter") User renter, Sort sort);
 }

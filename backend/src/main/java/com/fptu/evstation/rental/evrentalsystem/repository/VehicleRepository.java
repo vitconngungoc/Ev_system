@@ -15,4 +15,5 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long>, JpaSpec
     boolean existsByLicensePlate(String licensePlate);
     long countByStation(Station station);
     long countByModel(Model model);
+    long countByModelAndStation(Model model, Station station);
 }
