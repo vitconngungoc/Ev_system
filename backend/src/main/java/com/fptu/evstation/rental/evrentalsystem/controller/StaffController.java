@@ -1,14 +1,19 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
+import com.fptu.evstation.rental.evrentalsystem.entity.PenaltyFee;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.service.*;
 import com.fptu.evstation.rental.evrentalsystem.service.impl.UserServiceImpl;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -19,10 +24,13 @@ import java.util.Map;
 public class StaffController {
     private final AuthService authService;
     private final UserServiceImpl userService;
+    private final InvoiceService invoiceService;
     private final PaymentService paymentService;
+    private final DashboardService dashboardService;
+    private final ObjectMapper objectMapper;
     private final BookingService bookingService;
     private final ContractService contractService;
-    private final DashboardService dashboardService;
+    private final PenaltyFeeService penaltyFeeService;
 
     @GetMapping("/verifications/pending")
     public ResponseEntity<List<User>> getPendingVerifications(@RequestHeader("Authorization") String authHeader) {
@@ -90,6 +98,53 @@ public class StaffController {
     public ResponseEntity<List<ContractSummaryResponse>> getAllContracts(@RequestHeader("Authorization") String authHeader) {
         User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
         return ResponseEntity.ok(contractService.getAllContractsByStation(staff));
+    }
+
+    @PostMapping(value = "/bookings/{bookingId}/calculate-bill", consumes = { "multipart/form-data" })
+    public ResponseEntity<BillResponse> calculateFinalBill(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId,
+            @RequestPart(value = "selectedFeesJson", required = false) String selectedFeesJson,
+            @ModelAttribute PenaltyCalculationRequest request) {
+
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        if (selectedFeesJson != null && !selectedFeesJson.isBlank()) {
+            try {
+                List<PenaltyCalculationRequest.SelectedFee> selectedFees = objectMapper.readValue(selectedFeesJson, new TypeReference<>() {});
+                request.setSelectedFees(selectedFees);
+            } catch (Exception e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Định dạng của selectedFees không hợp lệ.");
+            }
+        }
+
+        BillResponse bill = paymentService.calculateFinalBill(staff, bookingId, request);
+        return ResponseEntity.ok(bill);
+    }
+
+    @PostMapping(value = "/bookings/{bookingId}/confirm-payment", consumes = { "multipart/form-data" })
+    public ResponseEntity<?> confirmPayment(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId,
+            @Valid @ModelAttribute PaymentConfirmationRequest req) {
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+
+        Map<String, Object> result = paymentService.confirmFinalPayment(bookingId, req, staff);
+
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/penalty-fees")
+    public ResponseEntity<List<PenaltyFee>> getAllPenaltyFees(@RequestHeader("Authorization") String authHeader) {
+        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        List<PenaltyFee> fees = penaltyFeeService.getAllPenaltyFees();
+        return ResponseEntity.ok(fees);
+    }
+
+    @GetMapping("/invoices")
+    public ResponseEntity<List<InvoiceSummaryResponse>> getAllInvoices(@RequestHeader("Authorization") String authHeader) {
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        List<InvoiceSummaryResponse> invoices = invoiceService.getAllInvoicesByStation(staff);
+        return ResponseEntity.ok(invoices);
     }
 
     @GetMapping("/dashboard")
