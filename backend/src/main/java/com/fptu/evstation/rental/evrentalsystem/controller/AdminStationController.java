@@ -275,4 +275,9 @@ public class AdminStationController {
         List<VehicleHistoryResponse> historyList = vehicleService.getHistoryByRenter(renterId);
         return ResponseEntity.ok(historyList);
     }
+    @GetMapping("/stations/report")
+    public ResponseEntity<?> getAllStationReports() {
+        List<Map<String, Object>> reports = stationService.getAllStationReports();
+        return ResponseEntity.ok(reports);
+    }
 }

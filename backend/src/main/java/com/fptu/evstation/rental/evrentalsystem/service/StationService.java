@@ -13,4 +13,5 @@ public interface StationService {
     void deleteStation(Long id);
     Station getStationById(Long stationId);
     Map<String, Object> getVehicleStatsByStation(Long stationId);
+    List<Map<String, Object>> getAllStationReports();
 }
