@@ -1,9 +1,6 @@
 package com.fptu.evstation.rental.evrentalsystem.service;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.BookingDetailResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.BookingRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.BookingSummaryResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.CheckInRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.Booking;
 import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
@@ -19,5 +16,9 @@ public interface BookingService {
     List<BookingSummaryResponse> getAllBookingsByStation(User staff, String keyword, String status, String date);
     Map<String, Object> initiateCheckIn(Long bookingId, User staff);
     Contract processCheckIn(Long bookingId, CheckInRequest req, User staff);
+    String cancelBookingByRenter(User renter, Long bookingId, CancelBookingRequest req);
+    List<BookingSummaryResponse> getPendingRefundsByStation(User staff);
+    void confirmRefund(User staff, Long bookingId);
+    void cancelBookingByStaff(Long bookingId, User staff);
 }
 
