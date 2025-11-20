@@ -1,14 +1,9 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
-import com.fptu.evstation.rental.evrentalsystem.entity.Model;
-import com.fptu.evstation.rental.evrentalsystem.entity.Station;
-import com.fptu.evstation.rental.evrentalsystem.entity.Vehicle;
-import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
-import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
-import com.fptu.evstation.rental.evrentalsystem.service.ReportService;
-import com.fptu.evstation.rental.evrentalsystem.service.StationService;
-import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
+import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
+import com.fptu.evstation.rental.evrentalsystem.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -30,6 +25,8 @@ public class AdminStationController {
     private final ModelService modelService;
     private final VehicleService vehicleService;
     private final ReportService reportService;
+    private final UserService userService;
+    private final UserRepository userRepository;
 
     // --- 1. Quản lý Trạm (Stations) ---
     @PostMapping("/stations")
@@ -196,6 +193,56 @@ public class AdminStationController {
         }
         return ResponseEntity.ok(report);
     }
+    // --- 4. Quản lý Người dùng (Users) ---
+    @GetMapping("/users")
+    public ResponseEntity<List<UserResponse>> getAllUsers() {
+        return ResponseEntity.ok(userService.getAllUsers());
+    }
 
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.getUserById(id));
+    }
+
+    @PatchMapping("/users/{userId}/status")
+    public ResponseEntity<?> updateUserStatus(
+            @PathVariable Long userId,
+            @RequestParam AccountStatus status) {
+
+        User user = userService.getUserById(userId);
+        user.setStatus(status);
+        if (status == AccountStatus.ACTIVE) {
+            user.setCancellationCount(0);
+        }
+        userService.saveUser(user);
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Trạng thái người dùng đã được cập nhật!",
+                "userId", userId,
+                "newStatus", status.name()
+        ));
+    }
+
+    @PutMapping("/users/{id}/role")
+    public ResponseEntity<User> updateUserRole(
+            @PathVariable Long id,
+            @RequestBody RoleUpdateRequest request) {
+        User updatedUser = userService.updateUserRole(id, request.getRoleId());
+        return ResponseEntity.ok(updatedUser);
+    }
+
+    @GetMapping("/staff/station/{stationId}")
+    public ResponseEntity<List<User>> getStaffByStation(@PathVariable Long stationId) {
+        List<User> staffList = userRepository.findByStation_StationId(stationId);
+        return ResponseEntity.ok(staffList);
+    }
+
+    @PutMapping("/{userId}/station/{stationId}")
+    public ResponseEntity<User> updateUserStation(
+            @PathVariable Long userId,
+            @PathVariable Long stationId) {
+        User updatedUser = userService.updateUserStation(userId, stationId);
+        return ResponseEntity.ok(updatedUser);
+    }
 
 }

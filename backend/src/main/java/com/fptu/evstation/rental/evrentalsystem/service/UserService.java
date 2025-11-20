@@ -1,9 +1,6 @@
 package com.fptu.evstation.rental.evrentalsystem.service;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.RegisterRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateProfileRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UploadVerificationRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.VerifyRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 
 import java.util.List;
@@ -17,4 +14,9 @@ public interface UserService {
     List<User> getPendingVerifications();
     String processVerification(Long userId, VerifyRequest req);
     User saveUser(User user);
+    List<UserResponse> getAllUsers();
+    User getUserById(Long id);
+    User updateUserRole(Long userId, Long newRoleId);
+    User updateUserStation(Long userId, Long newStationId);
+    User unlockUserAccount(Long userId);
 }
