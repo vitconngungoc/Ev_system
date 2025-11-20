@@ -1,6 +1,7 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
 import com.fptu.evstation.rental.evrentalsystem.dto.AuthResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.GoogleIdTokenRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.LoginRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.RegisterRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
@@ -62,5 +63,10 @@ public class AuthController {
 
         emailService.resetPasswordWithOtp(otp, newPassword, confirmPassword);
         return ResponseEntity.ok(Map.of("message", "Đặt lại mật khẩu thành công"));
+    }
+    @PostMapping("/google")
+    public ResponseEntity<AuthResponse> loginWithGoogle(@RequestBody GoogleIdTokenRequest req) {
+        AuthResponse resp = authService.loginWithGoogle(req.getIdToken());
+        return ResponseEntity.ok(resp);
     }
 }
