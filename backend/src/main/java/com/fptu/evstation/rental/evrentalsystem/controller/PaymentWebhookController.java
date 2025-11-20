@@ -64,8 +64,8 @@ public class PaymentWebhookController {
                     return ResponseEntity.ok("processed-deposit-booking-" + bookingId);
 
                 } else if (paymentType == '2') {
-//                    paymentService.autoConfirmRentalDeposit(bookingId);
-//                    log.info("Xử lý thành công webhook (cọc 2%) cho bookingId: {}", bookingId);
+                    paymentService.autoConfirmRentalDeposit(bookingId);
+                    log.info("Xử lý thành công webhook (cọc 2%) cho bookingId: {}", bookingId);
                     return ResponseEntity.ok("processed-rental-booking-" + bookingId);
 
                 } else {

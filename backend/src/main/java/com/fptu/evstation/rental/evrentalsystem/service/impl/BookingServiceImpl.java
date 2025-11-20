@@ -12,12 +12,17 @@ import org.springframework.data.domain.Sort;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 import vn.payos.PayOS;
 import vn.payos.exception.PayOSException;
 import vn.payos.model.v2.paymentRequests.CreatePaymentLinkRequest;
 import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -30,10 +35,14 @@ public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final VehicleRepository vehicleRepository;
+    private final PaymentService paymentService;
     private final VehicleService vehicleService;
     private final PayOS payOS;
     private final ObjectMapper objectMapper;
+    private final ContractService contractService;
     private final Random random = new Random();
+
+    private final Path handoverPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "handover_photos");
 
     private static final long MIN_RENTAL_HOURS = 1;
 
@@ -210,4 +219,191 @@ public class BookingServiceImpl implements BookingService {
                 .toList();
     }
 
+    @Override
+    public Map<String, Object> initiateCheckIn(Long bookingId, User staff) {
+        Booking booking = getBookingById(bookingId);
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+        if (booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking này không ở trạng thái sẵn sàng để check-in.");
+        }
+
+        Model model = booking.getVehicle().getModel();
+        double rentalDepositAmount = model.getInitialValue() * 0.02;
+
+        booking.setRentalDeposit(rentalDepositAmount);
+        bookingRepository.save(booking);
+
+        try {
+            final String description = "Cọc 2% cho Booking " + booking.getBookingId();
+            final String returnUrl = "http://localhost:3000/payment-success";
+            final String cancelUrl = "http://localhost:3000/payment-failed";
+            final long amount = (long) 2000.0;
+
+            String randomSuffix = String.format("%04d", random.nextInt(10000));
+            final long orderCode = Long.parseLong("2" + booking.getBookingId() + randomSuffix);
+
+            CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
+                    .orderCode(orderCode)
+                    .amount(amount)
+                    .description(description)
+                    .returnUrl(returnUrl)
+                    .cancelUrl(cancelUrl)
+                    .build();
+
+            CreatePaymentLinkResponse paymentResult = payOS.paymentRequests().create(paymentData);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Đã tạo link thanh toán cọc thuê xe 2%. Vui lòng đưa khách thanh toán.");
+            response.put("rentalDepositAmount", rentalDepositAmount);
+            response.put("paymentUrl", paymentResult.getCheckoutUrl());
+
+            return response;
+
+        } catch (PayOSException e) {
+            log.error("Lỗi khi tạo link thanh toán cọc 2% (PayOS): {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo link thanh toán cọc 2%: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Contract processCheckIn(Long bookingId, CheckInRequest req, User staff) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt xe."));
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (booking.getStatus() == BookingStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này chưa được xác nhận thanh toán phí giữ chỗ.");
+        }else if(booking.getStatus() == BookingStatus.RENTING){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã được thuê.");
+        }else if(booking.getStatus() == BookingStatus.COMPLETED){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã được hoàn thành.");
+        }else if(booking.getStatus() == BookingStatus.CANCELLED){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã bị hủy.");
+        }
+
+        Vehicle vehicle = booking.getVehicle();
+
+        if (req.getBattery() < 85) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Mức pin hiện tại chỉ có " + req.getBattery() + "%, không đủ mức pin tối thiểu 85% để giao xe cho khách thuê. " +
+                            "Vui lòng sạc xe trước khi giao cho khách.");
+        }
+
+        if (req.getMileage() < vehicle.getCurrentMileage()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Số km hiện tại bạn nhập (" + req.getMileage() + " km) không hợp lệ. " +
+                            "Số km trên hệ thống là " + vehicle.getCurrentMileage() + " km. " +
+                            "Vui lòng kiểm tra lại và nhập số km lớn hơn hoặc bằng số km hiện tại trên hệ thống.");
+        }
+
+        vehicle.setBatteryLevel(req.getBattery());
+        vehicle.setCurrentMileage(req.getMileage());
+        vehicle.setStatus(VehicleStatus.RENTED);
+        vehicleService.saveVehicle(vehicle);
+
+        if (req.getCheckInPhotos() == null || req.getCheckInPhotos().isEmpty() || req.getCheckInPhotos().get(0).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ảnh check-in (lúc giao xe) là bắt buộc.");
+        }
+
+
+        double rentalDepositAmount = booking.getVehicle().getModel().getInitialValue() * 0.02;
+        if (!booking.isRentalDepositPaid()) {
+            log.info("Booking {} chưa trả cọc 2% qua PayOS. Xử lý thanh toán thủ công...", bookingId);
+
+            if (req.getDepositPaymentMethod() == PaymentMethod.GATEWAY) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thanh toán qua cổng PayOS chưa được xác nhận. Vui lòng đợi hoặc chọn phương thức thanh toán thủ công (Tiền mặt/Chuyển khoản).");
+            }
+
+            paymentService.createTransaction(booking, rentalDepositAmount, req.getDepositPaymentMethod(), staff, "Thu cọc thuê xe 2% (thủ công)");
+            booking.setRentalDepositPaid(true);
+
+        } else {
+            log.info("Booking {} đã trả cọc 2% qua PayOS. Bỏ qua tạo giao dịch 2%...", bookingId);
+        }
+
+        List<String> photoPaths = new ArrayList<>();
+        String photoPathsJson = null;
+        for (int i = 0; i < req.getCheckInPhotos().size(); i++) {
+            MultipartFile photo = req.getCheckInPhotos().get(i);
+            String savedPath = saveHandoverPhoto(photo, bookingId, "checkin", i + 1);
+            photoPaths.add(savedPath);
+        }
+
+        try {
+            photoPathsJson = objectMapper.writeValueAsString(photoPaths);
+            booking.setCheckInPhotoPaths(photoPathsJson);
+        } catch (Exception e) {
+            log.error("Lỗi khi chuyển đổi danh sách ảnh thành JSON", e);
+        }
+
+        booking.setRentalDeposit(rentalDepositAmount);
+        booking.setStartDate(LocalDateTime.now());
+        booking.setStatus(BookingStatus.RENTING);
+        bookingRepository.save(booking);
+
+        Contract contract = contractService.generateAndSaveContract(booking, staff);
+        try {
+            vehicleService.recordVehicleAction(
+                    booking.getVehicle().getVehicleId(),
+                    staff.getUserId(),
+                    booking.getUser().getUserId(),
+                    staff.getStation().getStationId(),
+                    VehicleActionType.DELIVERY,
+                    "Nhân viên " + staff.getFullName() + " đã giao xe cho khách " + booking.getUser().getFullName(),
+                    req.getConditionBefore(),
+                    null,
+                    req.getBattery(),
+                    req.getMileage(),
+                    photoPathsJson
+            );
+        } catch (Exception e) {
+            log.warn("Không thể ghi lịch sử giao xe cho booking ID {}: {}", bookingId, e.getMessage());
+        }
+        log.info("Check-in thành công cho Booking ID: {}", bookingId);
+        return contract;
+    }
+
+    @Transactional
+    public String saveHandoverPhoto(MultipartFile file, Long bookingId, String type, int index) {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ảnh bàn giao không được để trống.");
+        }
+        try {
+            Path bookingDir = handoverPhotoDir.resolve("booking_" + bookingId);
+            Files.createDirectories(bookingDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+            String fileName = String.format("%s-%d%s", type, index, extension);
+            Path filePath = bookingDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            return "/uploads/handover_photos/booking_" + bookingId + "/" + fileName;
+
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh.");
+        }
+    }
 }
