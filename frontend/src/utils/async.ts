@@ -1,16 +1,12 @@
-export const sleep = (ms: number): Promise<void> => {
-  return new Promise(resolve => setTimeout(resolve, ms));
-};
-
+// Async utilities
 export const debounce = <T extends (...args: any[]) => any>(
   func: T,
-  wait: number
+  delay: number
 ): ((...args: Parameters<T>) => void) => {
-  let timeout: NodeJS.Timeout | null = null;
-  
+  let timeoutId: NodeJS.Timeout;
   return (...args: Parameters<T>) => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
   };
 };
 
@@ -19,7 +15,6 @@ export const throttle = <T extends (...args: any[]) => any>(
   limit: number
 ): ((...args: Parameters<T>) => void) => {
   let inThrottle: boolean;
-  
   return (...args: Parameters<T>) => {
     if (!inThrottle) {
       func(...args);
@@ -38,11 +33,7 @@ export const retry = async <T>(
     return await fn();
   } catch (error) {
     if (retries <= 0) throw error;
-    await sleep(delay);
-    return retry(fn, retries - 1, delay * 2);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return retry(fn, retries - 1, delay);
   }
-};
-
-export const isPromise = <T>(value: any): value is Promise<T> => {
-  return value && typeof value.then === 'function';
 };
