@@ -21,7 +21,7 @@ public class Vehicle {
     private String licensePlate;
 
     @Column(nullable = false)
-    private Double batteryLevel;
+    private Integer batteryLevel;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "modelId", nullable = false)

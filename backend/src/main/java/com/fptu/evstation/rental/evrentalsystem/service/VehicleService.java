@@ -26,7 +26,7 @@ public interface VehicleService {
 
     Vehicle saveVehicle(Vehicle vehicle);
     Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request);
-    VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Double battery, Double mileage, String photoPathsJson);
+    VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson);
     Vehicle updateVehicleDetails(User staff, Long vehicleId, UpdateVehicleDetailsRequest request);
     List<VehicleHistoryResponse> getVehicleHistory(Long stationId, LocalDate from, LocalDate to, VehicleType vehicleType, String licensePlate);
     List<VehicleHistoryResponse> getHistoryByVehicle(Long vehicleId);

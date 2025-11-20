@@ -16,7 +16,7 @@ import java.util.List;
 public class VehicleResponse {
     private Long vehicleId;
     private String licensePlate;
-    private Double batteryLevel;
+    private Integer batteryLevel;
     private String modelName;
     private String stationName;
     private Long stationId;

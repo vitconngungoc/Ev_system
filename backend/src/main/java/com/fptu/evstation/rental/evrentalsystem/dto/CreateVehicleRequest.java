@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Builder
 public class CreateVehicleRequest {
     private String licensePlate;
-    private Double batteryLevel;
+    private Integer batteryLevel;
     private Long modelId;
     private Long stationId;
     private Double currentMileage;

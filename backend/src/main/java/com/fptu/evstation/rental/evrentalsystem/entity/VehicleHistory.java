@@ -46,7 +46,7 @@ public class VehicleHistory {
     @Column(columnDefinition = "NVARCHAR(200)")
     private String conditionAfter;
 
-    private Double batteryLevel;
+    private Integer batteryLevel;
 
     private Double mileage;
 

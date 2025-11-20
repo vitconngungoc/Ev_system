@@ -294,7 +294,7 @@ public class VehicleServiceImpl implements VehicleService {
                     request.getDescription(),
                     lastKnownCondition,
                     null,
-                    (double) vehicle.getBatteryLevel(),
+                    vehicle.getBatteryLevel(),
                     vehicle.getCurrentMileage(),
                     photoPathsJson
             );
@@ -330,7 +330,7 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
-    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId,Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Double battery, Double mileage, String photoPathsJson) {
+    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId,Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
 
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
