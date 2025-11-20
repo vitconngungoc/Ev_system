@@ -520,4 +520,34 @@ public class BookingServiceImpl implements BookingService {
 
         return result;
     }
+    @Override
+    public List<BookingSummaryResponse> getBookingsWithFilter(UserBookingFilterRequest filter) {
+        return bookingRepository.findAll().stream()
+                .filter(b -> filter.getRenterName() == null ||
+                        b.getUser().getFullName().toLowerCase().contains(filter.getRenterName().toLowerCase()))
+                .filter(b -> filter.getStationId() == null ||
+                        (b.getStation() != null && b.getStation().getStationId().equals(filter.getStationId())))
+                .filter(b -> filter.getFromDate() == null ||
+                        !b.getStartDate().isBefore(filter.getFromDate()))
+                .filter(b -> filter.getToDate() == null ||
+                        !b.getStartDate().isAfter(filter.getToDate()))
+                .map(b -> BookingSummaryResponse.builder()
+                        .bookingId(b.getBookingId())
+                        .renterName(b.getUser().getFullName())
+                        .renterPhone(b.getUser().getPhone())
+                        .vehicleLicensePlate(b.getVehicle().getLicensePlate())
+                        .modelName(b.getVehicle().getModel().getModelName())
+                        .vehicleStatus(b.getVehicle().getStatus())
+                        .batteryLevel(b.getVehicle().getBatteryLevel())
+                        .currentMileage(b.getVehicle().getCurrentMileage())
+                        .bookingStatus(b.getStatus())
+                        .createdAt(b.getCreatedAt())
+                        .startDate(b.getStartDate())
+                        .stationId(b.getStation() != null ? b.getStation().getStationId() : null)
+                        .stationName(b.getStation() != null ? b.getStation().getName() : null)
+                        .refundAmount(b.getRefund())
+                        .refundInfo(b.getRefundNote())
+                        .build())
+                .toList();
+    }
 }

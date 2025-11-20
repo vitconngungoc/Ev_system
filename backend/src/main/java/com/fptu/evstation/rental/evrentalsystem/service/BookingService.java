@@ -1,9 +1,6 @@
 package com.fptu.evstation.rental.evrentalsystem.service;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.BookingDetailResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.BookingRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.BookingSummaryResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.CheckInRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.Booking;
 import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
@@ -21,5 +18,6 @@ public interface BookingService {
     Map<String, Object> initiateCheckIn(Long bookingId, User staff);
     Contract processCheckIn(Long bookingId, CheckInRequest req, User staff);
     Map<String, Object> getPeakHourStatistics(Long stationId, LocalDate fromDate, LocalDate toDate);
+    List<BookingSummaryResponse> getBookingsWithFilter(UserBookingFilterRequest filter);
 }
 

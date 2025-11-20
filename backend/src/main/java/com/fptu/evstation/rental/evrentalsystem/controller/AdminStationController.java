@@ -289,4 +289,9 @@ public class AdminStationController {
     ) {
         return ResponseEntity.ok(bookingService.getPeakHourStatistics(stationId, fromDate, toDate));
     }
+    @GetMapping("/bookings/search")
+    public ResponseEntity<List<BookingSummaryResponse>> searchBookings(UserBookingFilterRequest filter) {
+        List<BookingSummaryResponse> results = bookingService.getBookingsWithFilter(filter);
+        return ResponseEntity.ok(results);
+    }
 }
