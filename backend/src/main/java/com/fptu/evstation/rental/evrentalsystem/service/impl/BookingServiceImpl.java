@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -185,6 +186,67 @@ public class BookingServiceImpl implements BookingService {
 
         return bookings.stream()
                 .map(b -> {
+                    String licensePlate = "Chưa nhận xe";
+                    String modelName = "N/A";
+                    VehicleStatus vehicleStatus = null;
+                    Integer batteryLevel = null;
+                    Double currentMileage = null;
+
+                    Vehicle vehicle = b.getVehicle();
+
+                    if (vehicle != null) {
+                        licensePlate = vehicle.getLicensePlate();
+                        vehicleStatus = vehicle.getStatus();
+                        batteryLevel = vehicle.getBatteryLevel();
+                        currentMileage = vehicle.getCurrentMileage();
+                        if (vehicle.getModel() != null) {
+                            modelName = vehicle.getModel().getModelName();
+                        }
+                    }
+
+                    return BookingSummaryResponse.builder()
+                            .bookingId(b.getBookingId())
+                            .renterName(b.getUser().getFullName())
+                            .vehicleLicensePlate(licensePlate)
+                            .modelName(modelName)
+                            .vehicleStatus(vehicleStatus)
+                            .bookingStatus(b.getStatus())
+                            .batteryLevel(batteryLevel)
+                            .currentMileage(currentMileage)
+                            .createdAt(b.getCreatedAt())
+                            .startDate(b.getStartDate())
+                            .build();
+                })
+                .toList();
+    }
+
+    @Override
+    public List<BookingSummaryResponse> getAllBookingsByStation(User staff, String keyword, String status, String date) {
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+        List<Booking> bookings = bookingRepository.findAllByStationWithDetails(staff.getStation(), Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Stream<Booking> stream = bookings.stream();
+
+        if (keyword != null && !keyword.isBlank()) {
+            String likePattern = keyword.toLowerCase();
+            stream = stream.filter(b ->
+                    (b.getUser().getFullName() != null && b.getUser().getFullName().toLowerCase().contains(likePattern)) ||
+                            (b.getUser().getPhone() != null && b.getUser().getPhone().contains(likePattern))
+            );
+        }
+
+        if (status != null && !status.isBlank()) {
+            try {
+                BookingStatus bookingStatus = BookingStatus.valueOf(status.toUpperCase());
+                stream = stream.filter(b -> b.getStatus() == bookingStatus);
+            } catch (IllegalArgumentException e) {
+
+            }
+        }
+
+        return stream.map(b -> {
                     String licensePlate = "Chưa nhận xe";
                     String modelName = "N/A";
                     VehicleStatus vehicleStatus = null;

@@ -16,6 +16,7 @@ public interface BookingService {
     Booking getBookingById(Long bookingId);
     BookingDetailResponse getBookingDetailsById(Long bookingId);
     List<BookingSummaryResponse> getMyBookings(User renter);
+    List<BookingSummaryResponse> getAllBookingsByStation(User staff, String keyword, String status, String date);
     Map<String, Object> initiateCheckIn(Long bookingId, User staff);
     Contract processCheckIn(Long bookingId, CheckInRequest req, User staff);
 }

@@ -31,4 +31,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             "LEFT JOIN FETCH v.model " +
             "WHERE b.user = :renter")
     List<Booking> findByUserWithDetails(@Param("renter") User renter, Sort sort);
+
+    @Query("SELECT b FROM Booking b " +
+            "LEFT JOIN FETCH b.user " +
+            "LEFT JOIN FETCH b.vehicle v " +
+            "LEFT JOIN FETCH v.model " +
+            "WHERE b.station = :station")
+    List<Booking> findAllByStationWithDetails(@Param("station") Station station, Sort sort);
 }
