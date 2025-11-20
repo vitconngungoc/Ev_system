@@ -3,6 +3,7 @@ package com.fptu.evstation.rental.evrentalsystem.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.repository.BookingRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleHistoryRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
@@ -27,9 +28,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,11 +40,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleRepository vehicleRepository;
+    private final BookingRepository bookingRepository;
     private final StationService stationService;
     private final ModelService modelService;
     private final ObjectMapper objectMapper;
-    private final VehicleHistoryRepository historyRepository;
-    private final UserRepository userRepository;
     private final VehicleHistoryRepository historyRepository;
     private final UserRepository userRepository;
   
@@ -169,6 +171,26 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
+    public Map<String, Object> checkVehicleSchedule(Long vehicleId, LocalDateTime startTime, LocalDateTime endTime) {
+        Vehicle vehicle = getVehicleById(vehicleId);
+
+        if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+            return Map.of("isAvailable", false, "message", "Xe này hiện không còn khả dụng.");
+        }
+
+        List<BookingStatus> excludedStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                vehicle, startTime, endTime, excludedStatuses
+        );
+
+        if (conflicts > 0) {
+            return Map.of("isAvailable", false, "message", "Xe đã có lịch đặt trong khung giờ này.");
+        }
+
+        return Map.of("isAvailable", true, "message", "Xe khả dụng trong khung giờ này.");
+    }
+
+    @Override
     public List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order) {
         String sortField = "createdAt".equalsIgnoreCase(sortBy) ? "createdAt" : "model.pricePerHour";
         Sort sort = Sort.by(Sort.Direction.fromString((order == null || order.isBlank()) ? "DESC" : order), sortField);
@@ -214,32 +236,6 @@ public class VehicleServiceImpl implements VehicleService {
         }).toList();
     }
 
-    @Override
-    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
-
-        Vehicle vehicle = vehicleRepository.findById(vehicleId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
-        User staff = staffId != null ? userRepository.findById(staffId).orElse(null) : null;
-        User renter = renterId != null ? userRepository.findById(renterId).orElse(null) : null;
-        Station station = stationId != null ? stationService.getStationById(stationId) : null;
-
-        VehicleHistory history = VehicleHistory.builder()
-                .vehicle(vehicle)
-                .staff(staff)
-                .renter(renter)
-                .station(station)
-                .actionType(type)
-                .note(note)
-                .conditionBefore(conditionBefore)
-                .conditionAfter(conditionAfter)
-                .batteryLevel(battery)
-                .mileage(mileage)
-                .photoPaths(photoPathsJson)
-                .build();
-
-        return historyRepository.save(history);
-    }
-
     private List<String> getModelImagePaths(Model model) {
         if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {
             return new ArrayList<>();
@@ -267,6 +263,7 @@ public class VehicleServiceImpl implements VehicleService {
 
         return vehicleRepository.save(vehicle);
     }
+
     @Override
     @Transactional
     public Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request) {
@@ -317,7 +314,7 @@ public class VehicleServiceImpl implements VehicleService {
                     request.getDescription(),
                     lastKnownCondition,
                     null,
-                    (double) vehicle.getBatteryLevel(),
+                    vehicle.getBatteryLevel(),
                     vehicle.getCurrentMileage(),
                     photoPathsJson
             );
@@ -328,32 +325,10 @@ public class VehicleServiceImpl implements VehicleService {
         log.warn("XE HƯ HỎNG NẶNG: Xe {} đã được đưa vào trạng thái bảo trì. Lý do: {}", vehicle.getLicensePlate(), request.getDescription());
         return vehicleRepository.save(vehicle);
     }
-    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
-        try {
-            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
-            Files.createDirectories(vehicleDir);
-
-            String originalFilename = file.getOriginalFilename();
-            String extension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
-            }
-            String fileName = String.format("damage-%d%s", index, extension);
-            Path filePath = vehicleDir.resolve(fileName);
-            file.transferTo(filePath);
-
-            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
-            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
-            return relativePath;
-
-        } catch (IOException e) {
-            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
-        }
-    }
 
     @Override
-    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId,Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Double battery, Double mileage, String photoPathsJson) {
+    @Transactional
+    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
 
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
@@ -374,9 +349,9 @@ public class VehicleServiceImpl implements VehicleService {
                 .mileage(mileage)
                 .photoPaths(photoPathsJson)
                 .build();
-
         return historyRepository.save(history);
     }
+
     @Override
     public List<VehicleHistoryResponse> getVehicleHistory(Long stationId, LocalDate from, LocalDate to, VehicleType vehicleType, String licensePlate) {
         Sort sort = Sort.by(Sort.Direction.DESC, "actionTime");
@@ -481,5 +456,29 @@ public class VehicleServiceImpl implements VehicleService {
                         .actionTime(h.getActionTime())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
+        try {
+            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
+            Files.createDirectories(vehicleDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+            String fileName = String.format("damage-%d%s", index, extension);
+            Path filePath = vehicleDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
+            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
+            return relativePath;
+
+        } catch (IOException e) {
+            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
+        }
     }
 }
