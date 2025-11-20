@@ -1,43 +1,40 @@
-import { AUTH_TOKEN_KEY, USER_DATA_KEY } from '../constants/auth.constants';
-import { User } from '../types/auth.types';
+// LocalStorage utilities
+const STORAGE_KEYS = {
+  AUTH_TOKEN: 'auth_token',
+  USER_DATA: 'user_data',
+  PREFERENCES: 'preferences',
+} as const;
 
-export const saveAuthToken = (token: string): void => {
-  localStorage.setItem(AUTH_TOKEN_KEY, token);
-};
-
-export const getAuthToken = (): string | null => {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
-};
-
-export const removeAuthToken = (): void => {
-  localStorage.removeItem(AUTH_TOKEN_KEY);
-};
-
-export const saveUser = (user: User): void => {
-  localStorage.setItem(USER_DATA_KEY, JSON.stringify(user));
-};
-
-export const getUser = (): User | null => {
-  const userData = localStorage.getItem(USER_DATA_KEY);
-  if (!userData) return null;
-  
+export const setItem = (key: string, value: any): void => {
   try {
-    return JSON.parse(userData);
-  } catch {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error('Error saving to localStorage:', error);
+  }
+};
+
+export const getItem = <T>(key: string): T | null => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : null;
+  } catch (error) {
+    console.error('Error reading from localStorage:', error);
     return null;
   }
 };
 
-export const removeUser = (): void => {
-  localStorage.removeItem(USER_DATA_KEY);
+export const removeItem = (key: string): void => {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.error('Error removing from localStorage:', error);
+  }
 };
 
-export const clearAuthData = (): void => {
-  removeAuthToken();
-  removeUser();
-  sessionStorage.clear();
-};
-
-export const isAuthenticated = (): boolean => {
-  return !!getAuthToken();
+export const clear = (): void => {
+  try {
+    localStorage.clear();
+  } catch (error) {
+    console.error('Error clearing localStorage:', error);
+  }
 };
