@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -236,12 +237,88 @@ public class VehicleServiceImpl implements VehicleService {
         }).toList();
     }
 
+    @Override
+    public List<VehicleResponse> getVehiclesByModelAndStation(Long modelId, Long stationId, User requestingUser){
+        Station station = stationService.getStationById(stationId);
+        Model model = modelService.getModelById(modelId);
+
+        List<VehicleStatus> excluded = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excluded);
+
+        final Map<Long, BookingStatus> userActiveBookingMap;
+
+        if (requestingUser != null) {
+            List<BookingStatus> activeStatuses = List.of(BookingStatus.CONFIRMED, BookingStatus.RENTING);
+            List<Booking> userActiveBookings = bookingRepository.findByUserAndStatusIn(requestingUser, activeStatuses);
+
+            userActiveBookingMap = userActiveBookings.stream()
+                    .filter(b -> b.getVehicle() != null)
+                    .collect(Collectors.toMap(
+                            b -> b.getVehicle().getVehicleId(),
+                            Booking::getStatus,
+                            (BookingStatus existing, BookingStatus replacement) -> existing
+                    ));
+        } else {
+            userActiveBookingMap = new HashMap<>();
+        }
+
+        return vehicles.stream().map(v -> convertToResponse(v, userActiveBookingMap)).toList();
+    }
+
+    @Override
+    public List<VehicleAvailabilityResponse> getAvailableVehiclesByModel(Long modelId, Long stationId,
+                                                                         LocalDateTime startTime, LocalDateTime endTime) {
+        Station station = stationService.getStationById(stationId);
+        Model model = modelService.getModelById(modelId);
+
+        List<VehicleStatus> excludedStatuses = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excludedStatuses);
+
+        List<BookingStatus> excludedBookingStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+
+        return vehicles.stream()
+                .map(vehicle -> {
+                    boolean isAvailable = true;
+                    String message = "Xe khả dụng trong khung giờ này";
+
+                    if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+                        isAvailable = false;
+                        message = "Xe hiện không còn khả dụng";
+                    } else if (startTime != null && endTime != null) {
+                        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                                vehicle, startTime, endTime, excludedBookingStatuses);
+
+                        if (conflicts > 0) {
+                            isAvailable = false;
+                            message = "Xe đã có lịch đặt trong khung giờ này";
+                        }
+                    }
+
+                    return VehicleAvailabilityResponse.builder()
+                            .vehicleId(vehicle.getVehicleId())
+                            .licensePlate(vehicle.getLicensePlate())
+                            .batteryLevel(vehicle.getBatteryLevel())
+                            .currentMileage(vehicle.getCurrentMileage())
+                            .status(vehicle.getStatus())
+                            .condition(vehicle.getCondition())
+                            .isAvailable(isAvailable)
+                            .availabilityNote(message)
+                            .modelId(model.getModelId())
+                            .modelName(model.getModelName())
+                            .stationId(station.getStationId())
+                            .stationName(station.getName())
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
     private List<String> getModelImagePaths(Model model) {
         if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {
             return new ArrayList<>();
         }
         return List.of(model.getImagePaths().split(","));
     }
+
     @Override
     @Transactional
     public Vehicle updateVehicleDetails(User staff, Long vehicleId, UpdateVehicleDetailsRequest request) {
@@ -456,6 +533,47 @@ public class VehicleServiceImpl implements VehicleService {
                         .actionTime(h.getActionTime())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    private VehicleResponse convertToResponse(Vehicle vehicle, Map<Long, BookingStatus> userActiveBookingMap) {
+        Model model = vehicle.getModel();
+        List<String> paths = getModelImagePaths(model);
+
+        boolean isReservedByMe = false;
+        boolean isRentedByMe = false;
+
+        BookingStatus userBookingStatus = userActiveBookingMap.get(vehicle.getVehicleId());
+
+        if (userBookingStatus != null) {
+            if (userBookingStatus == BookingStatus.CONFIRMED && vehicle.getStatus() == VehicleStatus.RESERVED) {
+                isReservedByMe = true;
+            }
+            else if (userBookingStatus == BookingStatus.RENTING && vehicle.getStatus() == VehicleStatus.RENTED) {
+                isRentedByMe = true;
+            }
+        }
+
+        return VehicleResponse.builder()
+                .vehicleId(vehicle.getVehicleId())
+                .licensePlate(vehicle.getLicensePlate())
+                .batteryLevel(vehicle.getBatteryLevel())
+                .modelName(model.getModelName())
+                .stationName(vehicle.getStation().getName())
+                .stationId(vehicle.getStation().getStationId())
+                .currentMileage(vehicle.getCurrentMileage())
+                .status(vehicle.getStatus().name())
+                .condition(vehicle.getCondition().name())
+                .vehicleType(model.getVehicleType())
+                .pricePerHour(model.getPricePerHour())
+                .seatCount(model.getSeatCount())
+                .rangeKm(model.getRangeKm())
+                .features(model.getFeatures())
+                .description(model.getDescription())
+                .imagePaths(paths)
+                .createdAt(vehicle.getCreatedAt())
+                .isReservedByMe(isReservedByMe)
+                .isRentedByMe(isRentedByMe)
+                .build();
     }
 
     protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {

@@ -1,16 +1,17 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.CreateModelRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.ModelResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateModelRequest;
-import com.fptu.evstation.rental.evrentalsystem.entity.Model;
-import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
+import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.repository.BookingRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.ModelRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
+import com.fptu.evstation.rental.evrentalsystem.service.StationService;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,8 @@ import java.util.stream.Collectors;
 public class ModelServiceImpl implements ModelService {
     private final ModelRepository modelRepository;
     private final VehicleRepository vehicleRepository;
+    private final BookingRepository bookingRepository;
+    private final StationService stationService;
 
     private final Path modelBaseDir = Paths.get(System.getProperty("user.dir"), "uploads", "models_img");
 
@@ -161,6 +164,162 @@ public class ModelServiceImpl implements ModelService {
         return models.stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ModelResponse> getModelsByStation(Long stationId, String keyword, VehicleType vehicleType) {
+        Station station = stationService.getStationById(stationId);
+
+        if (!StationStatus.ACTIVE.equals(station.getStatus())) {
+            return new ArrayList<>();
+        }
+
+        List<Long> modelIds = vehicleRepository.findDistinctModelIdsByStation(station);
+
+        if (modelIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Specification<Model> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            predicates.add(root.get("modelId").in(modelIds));
+
+            if (keyword != null && !keyword.isBlank()) {
+                String lowerKeyword = keyword.trim().toLowerCase();
+                predicates.add(cb.like(cb.lower(root.get("modelName")), "%" + lowerKeyword + "%"));
+            }
+
+            if (vehicleType != null) {
+                predicates.add(cb.equal(root.get("vehicleType"), vehicleType));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        Sort sort = Sort.by(Sort.Direction.DESC, "rentalCount");
+        List<Model> models = modelRepository.findAll(spec, sort);
+
+        return models.stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ModelWithAvailabilityResponse> getAvailableModelsByStation(ModelSearchRequest searchRequest) {
+        Station station = stationService.getStationById(searchRequest.getStationId());
+
+        if (!StationStatus.ACTIVE.equals(station.getStatus())) {
+            return new ArrayList<>();
+        }
+
+        List<Long> modelIds = vehicleRepository.findDistinctModelIdsByStation(station);
+
+        if (modelIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Specification<Model> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            predicates.add(root.get("modelId").in(modelIds));
+
+            if (searchRequest.getVehicleType() != null) {
+                predicates.add(cb.equal(root.get("vehicleType"), searchRequest.getVehicleType()));
+            }
+
+            if (searchRequest.getMinPrice() != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("pricePerHour"), searchRequest.getMinPrice()));
+            }
+            if (searchRequest.getMaxPrice() != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("pricePerHour"), searchRequest.getMaxPrice()));
+            }
+
+            if (searchRequest.getSeatCount() != null) {
+                predicates.add(cb.equal(root.get("seatCount"), searchRequest.getSeatCount()));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        List<Model> models = modelRepository.findAll(spec);
+
+        List<ModelWithAvailabilityResponse> responses = models.stream()
+                .map(model -> convertToAvailabilityResponse(model, station, searchRequest.getStartTime(), searchRequest.getEndTime()))
+                .collect(Collectors.toList());
+
+        if (searchRequest.getStartTime() != null && searchRequest.getEndTime() != null) {
+            responses = responses.stream()
+                    .filter(r -> r.getAvailableVehicleCount() > 0)
+                    .collect(Collectors.toList());
+        }
+        responses = responses.stream()
+                .sorted((a, b) -> Integer.compare(
+                        b.getRentalCount() != null ? b.getRentalCount() : 0,
+                        a.getRentalCount() != null ? a.getRentalCount() : 0
+                ))
+                .collect(Collectors.toList());
+        String sortBy = searchRequest.getSortBy();
+        String order = searchRequest.getOrder();
+
+        if ("price".equalsIgnoreCase(sortBy)) {
+            if ("ASC".equalsIgnoreCase(order)) {
+                responses.sort((a, b) -> Double.compare(a.getPricePerHour(), b.getPricePerHour()));
+            } else {
+                responses.sort((a, b) -> Double.compare(b.getPricePerHour(), a.getPricePerHour()));
+            }
+        } else if (!"rentalCount".equalsIgnoreCase(sortBy)) {
+            if ("ASC".equalsIgnoreCase(order)) {
+                responses.sort((a, b) -> a.getCreatedAt().compareTo(b.getCreatedAt()));
+            } else {
+                responses.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
+            }
+        }
+
+        return responses;
+    }
+
+    private ModelWithAvailabilityResponse convertToAvailabilityResponse(Model model, Station station,
+                                                                        LocalDateTime startTime, LocalDateTime endTime) {
+        List<String> paths = (model.getImagePaths() != null && !model.getImagePaths().isBlank())
+                ? List.of(model.getImagePaths().split(","))
+                : new ArrayList<>();
+
+        List<VehicleStatus> excludedStatuses = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> allVehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excludedStatuses);
+
+        int totalCount = allVehicles.size();
+        int availableCount = totalCount;
+
+        if (startTime != null && endTime != null) {
+            List<BookingStatus> excludedBookingStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+
+            availableCount = (int) allVehicles.stream()
+                    .filter(vehicle -> {
+                        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                                vehicle, startTime, endTime, excludedBookingStatuses);
+                        return conflicts == 0;
+                    })
+                    .count();
+        }
+
+        return ModelWithAvailabilityResponse.builder()
+                .modelId(model.getModelId())
+                .modelName(model.getModelName())
+                .vehicleType(model.getVehicleType())
+                .seatCount(model.getSeatCount())
+                .batteryCapacity(model.getBatteryCapacity())
+                .rangeKm(model.getRangeKm())
+                .pricePerHour(model.getPricePerHour())
+                .initialValue(model.getInitialValue())
+                .features(model.getFeatures())
+                .description(model.getDescription())
+                .imagePaths(paths)
+                .createdAt(model.getCreatedAt())
+                .updatedAt(model.getUpdatedAt())
+                .availableVehicleCount(availableCount)
+                .totalVehicleCount(totalCount)
+                .rentalCount(model.getRentalCount())
+                .build();
     }
 
     private ModelResponse convertToResponse(Model model) {

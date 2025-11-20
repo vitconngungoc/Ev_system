@@ -16,13 +16,13 @@ import java.util.List;
 import java.util.Map;
 
 public interface VehicleService {
-
     VehicleResponse createVehicle(CreateVehicleRequest request);
     Vehicle updateVehicle(Long id, UpdateVehicleDetailsRequest request);
     void deleteVehicle(Long id);
     Vehicle getVehicleById(Long vehicleId);
     VehicleResponse getVehicleDetailsById(Long id);
     List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order);
+    List<VehicleResponse> getVehiclesByModelAndStation(Long modelId, Long stationId, User requestingUser);
     VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson);
     Vehicle saveVehicle(Vehicle vehicle);
     Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request);
@@ -31,4 +31,5 @@ public interface VehicleService {
     List<VehicleHistoryResponse> getHistoryByVehicle(Long vehicleId);
     List<VehicleHistoryResponse> getHistoryByRenter(Long renterId);
     Map<String, Object> checkVehicleSchedule(Long vehicleId, LocalDateTime startTime, LocalDateTime endTime);
+    List<VehicleAvailabilityResponse> getAvailableVehiclesByModel(Long modelId, Long stationId, LocalDateTime startTime, LocalDateTime endTime);
 }
