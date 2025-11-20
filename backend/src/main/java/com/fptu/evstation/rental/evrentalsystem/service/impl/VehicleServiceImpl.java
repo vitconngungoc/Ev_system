@@ -1,9 +1,13 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.CreateVehicleRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.ReportDamageRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.UpdateVehicleDetailsRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.VehicleResponse;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
+import com.fptu.evstation.rental.evrentalsystem.repository.VehicleHistoryRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
@@ -16,8 +20,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,7 +37,10 @@ public class VehicleServiceImpl implements VehicleService {
     private final VehicleRepository vehicleRepository;
     private final StationService stationService;
     private final ModelService modelService;
-
+    private final ObjectMapper objectMapper;
+    private final VehicleHistoryRepository historyRepository;
+    private final UserRepository userRepository;
+    private final Path damageReportDir = Paths.get(System.getProperty("user.dir"), "uploads", "damage_reports");
 
     @Override
     public VehicleResponse createVehicle(CreateVehicleRequest request) {
@@ -202,5 +214,136 @@ public class VehicleServiceImpl implements VehicleService {
             return new ArrayList<>();
         }
         return List.of(model.getImagePaths().split(","));
+    }
+    @Override
+    @Transactional
+    public Vehicle updateVehicleDetails(User staff, Long vehicleId, UpdateVehicleDetailsRequest request) {
+        Vehicle vehicle = getVehicleById(vehicleId);
+
+        if (staff.getStation() == null || !vehicle.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền cập nhật thông tin xe ở trạm khác.");
+        }
+
+        if (request.getBatteryLevel() != null) {
+            vehicle.setBatteryLevel(request.getBatteryLevel());
+            log.info("Cập nhật mức pin cho xe {} thành {}%", vehicle.getLicensePlate(), request.getBatteryLevel());
+        }
+
+        if (request.getNewCondition() != null) {
+            vehicle.setCondition(request.getNewCondition());
+            log.info("Cập nhật tình trạng xe {} thành {}", vehicle.getLicensePlate(), request.getNewCondition());
+        }
+
+        return vehicleRepository.save(vehicle);
+    }
+    @Override
+    @Transactional
+    public Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        Vehicle vehicle = getVehicleById(vehicleId);
+
+        if (staff.getStation() == null || !vehicle.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền báo cáo hư hỏng cho xe ở trạm khác.");
+        }
+
+        vehicle.setCondition(VehicleCondition.MAINTENANCE_REQUIRED);
+        vehicle.setStatus(VehicleStatus.UNAVAILABLE);
+
+        List<String> photoPaths = new ArrayList<>();
+        if (request.getPhotos() != null && !request.getPhotos().isEmpty()) {
+            for (int i = 0; i < request.getPhotos().size(); i++) {
+                MultipartFile photo = request.getPhotos().get(i);
+                String savedPath = saveDamageReportPhoto(photo, vehicleId, i + 1);
+                photoPaths.add(savedPath);
+            }
+        }
+
+        VehicleHistory lastHistory = historyRepository.findFirstByVehicleOrderByActionTimeDesc(vehicle);
+        String lastKnownCondition = "Không rõ (Xe mới)";
+
+        if (lastHistory != null) {
+            if (lastHistory.getConditionAfter() != null && !lastHistory.getConditionAfter().isBlank()) {
+                lastKnownCondition = lastHistory.getConditionAfter();
+            }
+            else if (lastHistory.getConditionBefore() != null) {
+                lastKnownCondition = lastHistory.getConditionBefore();
+            }
+        }
+
+        try {
+            String photoPathsJson = objectMapper.writeValueAsString(photoPaths);
+            vehicle.setDamageReportPhotos(photoPathsJson);
+
+            recordVehicleAction(
+                    vehicleId,
+                    staff.getUserId(),
+                    null,
+                    staff.getStation().getStationId(),
+                    VehicleActionType.MAINTENANCE,
+                    request.getDescription(),
+                    lastKnownCondition,
+                    null,
+                    (double) vehicle.getBatteryLevel(),
+                    vehicle.getCurrentMileage(),
+                    photoPathsJson
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Lỗi khi lưu ảnh hoặc ghi lịch sử báo cáo hư hỏng.", e);
+        }
+
+        log.warn("XE HƯ HỎNG NẶNG: Xe {} đã được đưa vào trạng thái bảo trì. Lý do: {}", vehicle.getLicensePlate(), request.getDescription());
+        return vehicleRepository.save(vehicle);
+    }
+    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
+        try {
+            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
+            Files.createDirectories(vehicleDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+            String fileName = String.format("damage-%d%s", index, extension);
+            Path filePath = vehicleDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
+            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
+            return relativePath;
+
+        } catch (IOException e) {
+            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
+        }
+    }
+
+    @Override
+    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId,Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Double battery, Double mileage, String photoPathsJson) {
+
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
+        User staff = staffId != null ? userRepository.findById(staffId).orElse(null) : null;
+        User renter = renterId != null ? userRepository.findById(renterId).orElse(null) : null;
+        Station station = stationId != null ? stationService.getStationById(stationId) : null;
+
+        VehicleHistory history = VehicleHistory.builder()
+                .vehicle(vehicle)
+                .staff(staff)
+                .renter(renter)
+                .station(station)
+                .actionType(type)
+                .note(note)
+                .conditionBefore(conditionBefore)
+                .conditionAfter(conditionAfter)
+                .batteryLevel(battery)
+                .mileage(mileage)
+                .photoPaths(photoPathsJson)
+                .build();
+
+        return historyRepository.save(history);
     }
 }
