@@ -11,6 +11,7 @@ import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
+import com.fptu.evstation.rental.evrentalsystem.entity.Booking;
 import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
 import com.fptu.evstation.rental.evrentalsystem.entity.PenaltyFee;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
@@ -140,6 +141,41 @@ public class StaffController {
         Map<String, Object> result = paymentService.confirmFinalPayment(bookingId, req, staff);
 
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/bookings/{bookingId}/cancel")
+    public ResponseEntity<?> cancelBooking(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId) {
+
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        Booking booking = bookingService.getBookingById(bookingId);
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        bookingService.cancelBookingByStaff(bookingId, staff);
+        return ResponseEntity.ok(Map.of("message", "Nhân viên đã hủy booking thành công."));
+    }
+
+    @GetMapping("/refund-requests")
+    public ResponseEntity<List<BookingSummaryResponse>> getRefundRequests(
+            @RequestHeader("Authorization") String authHeader) {
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        List<BookingSummaryResponse> list = bookingService.getPendingRefundsByStation(staff);
+        return ResponseEntity.ok(list);
+    }
+
+    @PostMapping("/bookings/{bookingId}/confirm-refund")
+    public ResponseEntity<?> confirmRefund(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId) {
+
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        bookingService.confirmRefund(staff, bookingId);
+
+        return ResponseEntity.ok(Map.of("message", "Đã xác nhận hoàn tiền thành công. Khách hàng sẽ thấy trạng thái 'Đã hoàn tiền'."));
     }
 
     @GetMapping("/penalty-fees")

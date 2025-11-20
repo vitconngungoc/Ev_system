@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -40,12 +41,14 @@ import java.util.stream.Collectors;
 @Slf4j
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleRepository vehicleRepository;
+    private final BookingRepository bookingRepository;
     private final StationService stationService;
     private final ModelService modelService;
     private final ObjectMapper objectMapper;
     private final VehicleHistoryRepository historyRepository;
     private final UserRepository userRepository;
     private final BookingRepository bookingRepository;
+  
     private final Path damageReportDir = Paths.get(System.getProperty("user.dir"), "uploads", "damage_reports");
 
     @Override
@@ -170,6 +173,26 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
+    public Map<String, Object> checkVehicleSchedule(Long vehicleId, LocalDateTime startTime, LocalDateTime endTime) {
+        Vehicle vehicle = getVehicleById(vehicleId);
+
+        if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+            return Map.of("isAvailable", false, "message", "Xe này hiện không còn khả dụng.");
+        }
+
+        List<BookingStatus> excludedStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                vehicle, startTime, endTime, excludedStatuses
+        );
+
+        if (conflicts > 0) {
+            return Map.of("isAvailable", false, "message", "Xe đã có lịch đặt trong khung giờ này.");
+        }
+
+        return Map.of("isAvailable", true, "message", "Xe khả dụng trong khung giờ này.");
+    }
+
+    @Override
     public List<VehicleResponse> getAllVehicles(Long modelId, Long stationId, VehicleType vehicleType, String sortBy, String order) {
         String sortField = "createdAt".equalsIgnoreCase(sortBy) ? "createdAt" : "model.pricePerHour";
         Sort sort = Sort.by(Sort.Direction.fromString((order == null || order.isBlank()) ? "DESC" : order), sortField);
@@ -216,6 +239,80 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
 
+    @Override
+    public List<VehicleResponse> getVehiclesByModelAndStation(Long modelId, Long stationId, User requestingUser){
+        Station station = stationService.getStationById(stationId);
+        Model model = modelService.getModelById(modelId);
+
+        List<VehicleStatus> excluded = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excluded);
+
+        final Map<Long, BookingStatus> userActiveBookingMap;
+
+        if (requestingUser != null) {
+            List<BookingStatus> activeStatuses = List.of(BookingStatus.CONFIRMED, BookingStatus.RENTING);
+            List<Booking> userActiveBookings = bookingRepository.findByUserAndStatusIn(requestingUser, activeStatuses);
+
+            userActiveBookingMap = userActiveBookings.stream()
+                    .filter(b -> b.getVehicle() != null)
+                    .collect(Collectors.toMap(
+                            b -> b.getVehicle().getVehicleId(),
+                            Booking::getStatus,
+                            (BookingStatus existing, BookingStatus replacement) -> existing
+                    ));
+        } else {
+            userActiveBookingMap = new HashMap<>();
+        }
+
+        return vehicles.stream().map(v -> convertToResponse(v, userActiveBookingMap)).toList();
+    }
+
+    @Override
+    public List<VehicleAvailabilityResponse> getAvailableVehiclesByModel(Long modelId, Long stationId,
+                                                                         LocalDateTime startTime, LocalDateTime endTime) {
+        Station station = stationService.getStationById(stationId);
+        Model model = modelService.getModelById(modelId);
+
+        List<VehicleStatus> excludedStatuses = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excludedStatuses);
+
+        List<BookingStatus> excludedBookingStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+
+        return vehicles.stream()
+                .map(vehicle -> {
+                    boolean isAvailable = true;
+                    String message = "Xe khả dụng trong khung giờ này";
+
+                    if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+                        isAvailable = false;
+                        message = "Xe hiện không còn khả dụng";
+                    } else if (startTime != null && endTime != null) {
+                        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                                vehicle, startTime, endTime, excludedBookingStatuses);
+
+                        if (conflicts > 0) {
+                            isAvailable = false;
+                            message = "Xe đã có lịch đặt trong khung giờ này";
+                        }
+                    }
+
+                    return VehicleAvailabilityResponse.builder()
+                            .vehicleId(vehicle.getVehicleId())
+                            .licensePlate(vehicle.getLicensePlate())
+                            .batteryLevel(vehicle.getBatteryLevel())
+                            .currentMileage(vehicle.getCurrentMileage())
+                            .status(vehicle.getStatus())
+                            .condition(vehicle.getCondition())
+                            .isAvailable(isAvailable)
+                            .availabilityNote(message)
+                            .modelId(model.getModelId())
+                            .modelName(model.getModelName())
+                            .stationId(station.getStationId())
+                            .stationName(station.getName())
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
 
     private List<String> getModelImagePaths(Model model) {
         if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {
@@ -223,6 +320,7 @@ public class VehicleServiceImpl implements VehicleService {
         }
         return List.of(model.getImagePaths().split(","));
     }
+
     @Override
     @Transactional
     public Vehicle updateVehicleDetails(User staff, Long vehicleId, UpdateVehicleDetailsRequest request) {
@@ -244,6 +342,7 @@ public class VehicleServiceImpl implements VehicleService {
 
         return vehicleRepository.save(vehicle);
     }
+
     @Override
     @Transactional
     public Vehicle reportMajorDamage(User staff, Long vehicleId, ReportDamageRequest request) {
@@ -305,32 +404,10 @@ public class VehicleServiceImpl implements VehicleService {
         log.warn("XE HƯ HỎNG NẶNG: Xe {} đã được đưa vào trạng thái bảo trì. Lý do: {}", vehicle.getLicensePlate(), request.getDescription());
         return vehicleRepository.save(vehicle);
     }
-    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
-        try {
-            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
-            Files.createDirectories(vehicleDir);
-
-            String originalFilename = file.getOriginalFilename();
-            String extension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
-            }
-            String fileName = String.format("damage-%d%s", index, extension);
-            Path filePath = vehicleDir.resolve(fileName);
-            file.transferTo(filePath);
-
-            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
-            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
-            return relativePath;
-
-        } catch (IOException e) {
-            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
-        }
-    }
 
     @Override
-    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId,Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
+    @Transactional
+    public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
 
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe"));
@@ -351,9 +428,9 @@ public class VehicleServiceImpl implements VehicleService {
                 .mileage(mileage)
                 .photoPaths(photoPathsJson)
                 .build();
-
         return historyRepository.save(history);
     }
+
     @Override
     public List<VehicleHistoryResponse> getVehicleHistory(Long stationId, LocalDate from, LocalDate to, VehicleType vehicleType, String licensePlate) {
         Sort sort = Sort.by(Sort.Direction.DESC, "actionTime");
@@ -477,5 +554,69 @@ public class VehicleServiceImpl implements VehicleService {
         }
 
         return Map.of("isAvailable", true, "message", "Xe khả dụng trong khung giờ này.");
+
+    private VehicleResponse convertToResponse(Vehicle vehicle, Map<Long, BookingStatus> userActiveBookingMap) {
+        Model model = vehicle.getModel();
+        List<String> paths = getModelImagePaths(model);
+
+        boolean isReservedByMe = false;
+        boolean isRentedByMe = false;
+
+        BookingStatus userBookingStatus = userActiveBookingMap.get(vehicle.getVehicleId());
+
+        if (userBookingStatus != null) {
+            if (userBookingStatus == BookingStatus.CONFIRMED && vehicle.getStatus() == VehicleStatus.RESERVED) {
+                isReservedByMe = true;
+            }
+            else if (userBookingStatus == BookingStatus.RENTING && vehicle.getStatus() == VehicleStatus.RENTED) {
+                isRentedByMe = true;
+            }
+        }
+
+        return VehicleResponse.builder()
+                .vehicleId(vehicle.getVehicleId())
+                .licensePlate(vehicle.getLicensePlate())
+                .batteryLevel(vehicle.getBatteryLevel())
+                .modelName(model.getModelName())
+                .stationName(vehicle.getStation().getName())
+                .stationId(vehicle.getStation().getStationId())
+                .currentMileage(vehicle.getCurrentMileage())
+                .status(vehicle.getStatus().name())
+                .condition(vehicle.getCondition().name())
+                .vehicleType(model.getVehicleType())
+                .pricePerHour(model.getPricePerHour())
+                .seatCount(model.getSeatCount())
+                .rangeKm(model.getRangeKm())
+                .features(model.getFeatures())
+                .description(model.getDescription())
+                .imagePaths(paths)
+                .createdAt(vehicle.getCreatedAt())
+                .isReservedByMe(isReservedByMe)
+                .isRentedByMe(isRentedByMe)
+                .build();
+    }
+
+    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
+        try {
+            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
+            Files.createDirectories(vehicleDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+            String fileName = String.format("damage-%d%s", index, extension);
+            Path filePath = vehicleDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
+            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
+            return relativePath;
+
+        } catch (IOException e) {
+            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
+        }
     }
 }

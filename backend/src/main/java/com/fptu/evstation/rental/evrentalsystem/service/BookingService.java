@@ -19,5 +19,9 @@ public interface BookingService {
     Contract processCheckIn(Long bookingId, CheckInRequest req, User staff);
     Map<String, Object> getPeakHourStatistics(Long stationId, LocalDate fromDate, LocalDate toDate);
     List<BookingSummaryResponse> getBookingsWithFilter(UserBookingFilterRequest filter);
+    String cancelBookingByRenter(User renter, Long bookingId, CancelBookingRequest req);
+    List<BookingSummaryResponse> getPendingRefundsByStation(User staff);
+    void confirmRefund(User staff, Long bookingId);
+    void cancelBookingByStaff(Long bookingId, User staff);
 }
 

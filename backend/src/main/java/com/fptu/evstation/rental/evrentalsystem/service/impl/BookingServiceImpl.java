@@ -28,6 +28,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -36,6 +37,7 @@ import java.util.stream.Stream;
 public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
+    private final UserRepository userRepository;
     private final VehicleRepository vehicleRepository;
     private final PaymentService paymentService;
     private final VehicleService vehicleService;
@@ -444,6 +446,171 @@ public class BookingServiceImpl implements BookingService {
         }
         log.info("Check-in thành công cho Booking ID: {}", bookingId);
         return contract;
+    }
+
+    @Override
+    @Transactional
+    public String cancelBookingByRenter(User renter, Long bookingId, CancelBookingRequest req) {
+        Booking booking = getBookingById(bookingId);
+
+        if (renter.getStatus() == AccountStatus.INACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ trạm.");
+        }
+        if (booking.getStatus() != BookingStatus.PENDING && booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể hủy booking ở trạng thái " + booking.getStatus());
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (booking.getStartDate().isBefore(now.plusHours(2))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể hủy booking quá sát giờ nhận xe (trong vòng 2 giờ). Vui lòng liên hệ trạm.");
+        }
+
+        int newCount = renter.getCancellationCount() + 1;
+        renter.setCancellationCount(newCount);
+        String penaltyMessage = "";
+
+        if (newCount >= 3) {
+            renter.setStatus(AccountStatus.INACTIVE);
+            penaltyMessage = "TÀI KHOẢN BỊ KHÓA do hủy 3 lần.";
+        } else if (newCount == 2) {
+            penaltyMessage = "CẢNH BÁO: Hủy thêm 1 lần nữa, tài khoản sẽ bị khóa.";
+        } else {
+            penaltyMessage = "Bạn còn " + (2 - newCount) + " lần hủy an toàn.";
+        }
+        userRepository.save(renter);
+
+        if (booking.getStatus() == BookingStatus.PENDING) {
+            booking.setStatus(BookingStatus.CANCELLED);
+            bookingRepository.save(booking);
+            return "Đã hủy đơn (chưa thanh toán) thành công. " + penaltyMessage;
+        }
+
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            Vehicle vehicle = booking.getVehicle();
+
+            if (vehicle != null && vehicle.getStatus() == VehicleStatus.RESERVED) {
+                vehicle.setStatus(VehicleStatus.AVAILABLE);
+                vehicleService.saveVehicle(vehicle);
+                log.info("Đã trả xe (ID: {}) về AVAILABLE do booking (ID: {}) bị hủy.", vehicle.getVehicleId(), booking.getBookingId());
+            } else {
+                log.warn("Booking (ID: {}) bị hủy nhưng xe (ID: {}) không ở trạng thái RESERVED.",
+                        booking.getBookingId(), (vehicle != null ? vehicle.getVehicleId() : "null"));
+            }
+
+            LocalDateTime refundCutoff = booking.getCreatedAt().plusHours(12);
+            if (now.isBefore(refundCutoff)) {
+                if (req == null || req.getBankName() == null || req.getAccountNumber() == null || req.getAccountName() == null ||
+                        req.getBankName().isBlank() || req.getAccountNumber().isBlank() || req.getAccountName().isBlank()) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Vui lòng cung cấp đầy đủ thông tin tài khoản ngân hàng để nhận hoàn cọc.");
+                }
+
+                booking.setStatus(BookingStatus.CANCELLED_AWAIT_REFUND);
+                booking.setRefund(500000.0);
+                String refundNote = String.format("Ngân hàng: %s, STK: %s, Chủ TK: %s",
+                        req.getBankName(), req.getAccountNumber(), req.getAccountName());
+                booking.setRefundNote(refundNote);
+
+                bookingRepository.save(booking);
+                return "Đã hủy đơn thành công. " + penaltyMessage + " Yêu cầu hoàn cọc 500k về tài khoản (" + req.getAccountNumber() + ") đã được ghi nhận và đang chờ xử lý.";
+
+            } else {
+                booking.setStatus(BookingStatus.CANCELLED);
+                bookingRepository.save(booking);
+
+                return "Bạn đã hủy đơn quá 12 giờ kể từ khi đặt, bạn sẽ bị mất cọc. " + penaltyMessage;
+            }
+        }
+
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể hủy booking ở trạng thái " + booking.getStatus());
+    }
+
+    @Override
+    public List<BookingSummaryResponse> getPendingRefundsByStation(User staff) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        List<Booking> bookings = bookingRepository.findAllByStationWithDetails(
+                staff.getStation(),
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        return bookings.stream()
+                .filter(b -> b.getStatus() == BookingStatus.CANCELLED_AWAIT_REFUND)
+                .map(b -> BookingSummaryResponse.builder()
+                        .bookingId(b.getBookingId())
+                        .renterName(b.getUser().getFullName())
+                        .renterPhone(b.getUser().getPhone())
+                        .vehicleLicensePlate(b.getVehicle() != null ? b.getVehicle().getLicensePlate() : "N/A")
+                        .modelName(b.getVehicle() != null ? b.getVehicle().getModel().getModelName() : "N/A")
+                        .bookingStatus(b.getStatus())
+                        .refundAmount(b.getRefund())
+                        .refundInfo(b.getRefundNote())
+                        .createdAt(b.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public void confirmRefund(User staff, Long bookingId) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        Booking booking = getBookingById(bookingId);
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (booking.getStatus() != BookingStatus.CANCELLED_AWAIT_REFUND) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking này không ở trạng thái chờ hoàn tiền.");
+        }
+
+        booking.setStatus(BookingStatus.REFUNDED);
+        bookingRepository.save(booking);
+
+        paymentService.createTransaction(
+                booking,
+                -500000.0,
+                PaymentMethod.BANK_TRANSFER,
+                staff,
+                "Nhân viên xác nhận hoàn cọc 500k (thủ công)"
+        );
+        log.info("Nhân viên {} đã xác nhận hoàn cọc 500k cho booking {}", staff.getFullName(), bookingId);
+    }
+
+    @Override
+    @Transactional
+    public void cancelBookingByStaff(Long bookingId, User staff) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        Booking booking = getBookingById(bookingId);
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể hủy booking ở trạng thái " + booking.getStatus());
+        }
+
+        booking.setStatus(BookingStatus.CANCELLED);
+        bookingRepository.save(booking);
     }
 
     @Transactional

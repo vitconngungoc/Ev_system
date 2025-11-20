@@ -22,6 +22,7 @@ public class VehicleController {
         Map<String, Object> stats = stationService.getVehicleStatsByStation(stationId);
         return ResponseEntity.ok(stats);
     }
+
     @GetMapping("/{vehicleId}/availability")
     public ResponseEntity<?> checkVehicleScheduleAvailability(
             @PathVariable Long vehicleId,
