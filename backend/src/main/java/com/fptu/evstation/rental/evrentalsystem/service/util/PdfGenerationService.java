@@ -1,6 +1,8 @@
 package com.fptu.evstation.rental.evrentalsystem.service.util;
 
+import com.fptu.evstation.rental.evrentalsystem.dto.BillResponse;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.repository.BookingRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.PenaltyFeeRepository;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
@@ -11,7 +13,6 @@ import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.*;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -19,19 +20,25 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class PdfGenerationService {
     public static final String FONT_PATH = "fonts/times.ttf";
     public static final String BOLD_FONT_PATH = "fonts/timesbd.ttf";
     public static final String ITALIC_FONT_PATH = "fonts/timesi.ttf";
 
     private final PenaltyFeeRepository penaltyFeeRepository;
+    private final BookingRepository bookingRepository;
+
+    public PdfGenerationService(PenaltyFeeRepository penaltyFeeRepository, BookingRepository bookingRepository) {
+        this.penaltyFeeRepository = penaltyFeeRepository;
+        this.bookingRepository = bookingRepository;
+    }
 
     public void generateContractPdf(Path filePath, Booking booking, User staff) {
         try {
@@ -150,6 +157,146 @@ public class PdfGenerationService {
         } catch (IOException e) {
             log.error("Lỗi khi tạo file PDF cho hợp đồng", e);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF hợp đồng.");
+        }
+    }
+
+    public void generateInvoicePdf(Path filePath, BillResponse billDetails) {
+        try {
+            PdfWriter writer = new PdfWriter(filePath.toString());
+            PdfDocument pdf = new PdfDocument(writer);
+            Document document = new Document(pdf, PageSize.A4);
+            document.setMargins(40, 40, 40, 40);
+
+            PdfFont regularFont = PdfFontFactory.createFont(FONT_PATH, PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
+            PdfFont boldFont = PdfFontFactory.createFont(BOLD_FONT_PATH, PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
+            PdfFont italicFont = PdfFontFactory.createFont(ITALIC_FONT_PATH, PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
+            document.setFont(regularFont);
+
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm, 'ngày' dd/MM/yyyy");
+            LocalDateTime dateTime = billDetails.getDateTime() != null ? billDetails.getDateTime() : LocalDateTime.now();
+
+            Booking booking = bookingRepository.findById(billDetails.getBookingId()).orElseThrow();
+            User renter = booking.getUser();
+            Vehicle vehicle = booking.getVehicle();
+
+            document.add(new Paragraph("HÓA ĐƠN THANH TOÁN DỊCH VỤ").setTextAlignment(TextAlignment.CENTER).setFont(boldFont).setFontSize(18));
+            document.add(new Paragraph("Mã Booking: #" + billDetails.getBookingId()).setTextAlignment(TextAlignment.CENTER));
+            document.add(new Paragraph("Ngày lập: " + dateTime.format(formatter)).setTextAlignment(TextAlignment.CENTER));
+
+            document.add(new Paragraph("THÔNG TIN DỊCH VỤ").setFont(boldFont).setMarginTop(15));
+            Table serviceTable = new Table(UnitValue.createPercentArray(new float[]{1, 2})).useAllAvailableWidth();
+            serviceTable.addCell(new Paragraph("Tên xe:"));
+            serviceTable.addCell(new Paragraph(vehicle.getModel().getModelName()));
+            serviceTable.addCell(new Paragraph("Biển số:"));
+            serviceTable.addCell(new Paragraph(vehicle.getLicensePlate()));
+            serviceTable.addCell(new Paragraph("Thời gian nhận:"));
+            serviceTable.addCell(new Paragraph(booking.getStartDate().format(formatter)));
+            serviceTable.addCell(new Paragraph("Thời gian trả:"));
+            serviceTable.addCell(new Paragraph(dateTime.format(formatter)));
+            document.add(serviceTable);
+
+            document.add(new Paragraph("THÔNG TIN KHÁCH HÀNG").setFont(boldFont).setMarginTop(10));
+            Table customerTable = new Table(UnitValue.createPercentArray(new float[]{1, 2})).useAllAvailableWidth();
+            customerTable.addCell(new Paragraph("Họ và tên:"));
+            customerTable.addCell(new Paragraph(renter.getFullName()));
+            customerTable.addCell(new Paragraph("Số điện thoại:"));
+            customerTable.addCell(new Paragraph(renter.getPhone()));
+            customerTable.addCell(new Paragraph("Email:"));
+            customerTable.addCell(new Paragraph(renter.getEmail()));
+            document.add(customerTable);
+
+            document.add(new Paragraph("CHI TIẾT CHI PHÍ PHÁT SINH").setFont(boldFont).setMarginTop(15));
+            Table detailsTable = new Table(UnitValue.createPercentArray(new float[]{3, 1})).useAllAvailableWidth();
+            detailsTable.addHeaderCell(new Paragraph("Nội dung").setFont(boldFont));
+            detailsTable.addHeaderCell(new Paragraph("Số tiền (VNĐ)").setFont(boldFont).setTextAlignment(TextAlignment.RIGHT));
+
+            detailsTable.addCell(new Paragraph("Phí thuê xe cơ bản"));
+            detailsTable.addCell(new Paragraph(String.format("%,.0f", billDetails.getBaseRentalFee())).setTextAlignment(TextAlignment.RIGHT));
+
+            if (billDetails.getFeeItems() != null && !billDetails.getFeeItems().isEmpty()) {
+                boolean hasPositiveFees = billDetails.getFeeItems().stream().anyMatch(item -> item.getAmount() > 0);
+                if (hasPositiveFees) {
+                    detailsTable.addCell(new Paragraph("Phụ phí phát sinh:").setFont(boldFont));
+                    detailsTable.addCell("");
+                    for (BillResponse.FeeItem item : billDetails.getFeeItems()) {
+                        if (item.getAmount() > 0) {
+                            detailsTable.addCell(new Paragraph("  - " + item.getFeeName()).setPaddingLeft(20));
+                            detailsTable.addCell(new Paragraph(String.format("%,.0f", item.getAmount())).setTextAlignment(TextAlignment.RIGHT));
+                        }
+                    }
+                }
+            }
+
+            double totalDebit = billDetails.getBaseRentalFee() + billDetails.getTotalPenaltyFee();
+
+            detailsTable.addCell(new Paragraph("TỔNG CHI PHÍ KHÁCH CẦN THANH TOÁN:").setFont(boldFont).setFontSize(14));
+            detailsTable.addCell(new Paragraph(String.format("%,.0f", totalDebit)).setTextAlignment(TextAlignment.RIGHT).setFont(boldFont).setFontSize(14));
+            document.add(detailsTable);
+
+            document.add(new Paragraph("CHI TIẾT CỌC XE & GIẢM GIÁ").setFont(boldFont).setMarginTop(20));
+            Table summaryTable = new Table(UnitValue.createPercentArray(new float[]{3, 1})).useAllAvailableWidth();
+            summaryTable.addHeaderCell(new Paragraph("Nội dung").setFont(boldFont));
+            summaryTable.addHeaderCell(new Paragraph("Số tiền (VNĐ)").setFont(boldFont).setTextAlignment(TextAlignment.RIGHT));
+
+            summaryTable.addCell(new Paragraph("Tiền cọc thuê xe khách đã trả (500.000 VNĐ + 2% giá trị xe) :"));
+            summaryTable.addCell(new Paragraph(String.format("%,.0f", billDetails.getDownpayPaid())).setTextAlignment(TextAlignment.RIGHT));
+
+            List<BillResponse.FeeItem> negativeFees = billDetails.getFeeItems().stream()
+                    .filter(item -> item.getAmount() < 0)
+                    .toList();
+
+            if (!negativeFees.isEmpty()) {
+                summaryTable.addCell(new Paragraph("Giảm giá / Khuyến mãi:").setFont(boldFont));
+                summaryTable.addCell("");
+                for (BillResponse.FeeItem item : negativeFees) {
+                    summaryTable.addCell(new Paragraph("  - " + item.getFeeName()).setPaddingLeft(20));
+                    summaryTable.addCell(new Paragraph(String.format("%,.0f", Math.abs(item.getAmount()))).setTextAlignment(TextAlignment.RIGHT));
+                }
+            }
+
+            double totalCredit = billDetails.getDownpayPaid() + billDetails.getTotalDiscount();
+            summaryTable.addCell(new Paragraph("TỔNG TIỀN ĐÃ CỌC & GIẢM GIÁ (B):").setFont(boldFont).setFontSize(14));
+            summaryTable.addCell(new Paragraph(String.format("%,.0f", totalCredit)).setTextAlignment(TextAlignment.RIGHT).setFont(boldFont).setFontSize(14));
+
+            document.add(summaryTable);
+
+            Table finalSummaryTable = new Table(UnitValue.createPercentArray(new float[]{3, 1}))
+                    .useAllAvailableWidth()
+                    .setMarginTop(20);
+            Cell titleCell = new Cell(1, 2)
+                    .add(new Paragraph("QUYẾT TOÁN CUỐI CÙNG"))
+                    .setFont(boldFont)
+                    .setTextAlignment(TextAlignment.LEFT)
+                    .setBorder(null);
+            finalSummaryTable.addCell(titleCell);
+
+            if (billDetails.getPaymentDue() > 0) {
+                finalSummaryTable.addCell(new Paragraph("KHÁCH HÀNG THANH TOÁN THÊM (A - B):").setFont(boldFont).setFontSize(13));
+                finalSummaryTable.addCell(new Paragraph(String.format("%,.0f", billDetails.getPaymentDue())).setTextAlignment(TextAlignment.RIGHT).setFont(boldFont).setFontSize(13));
+            } else if (billDetails.getRefundToCustomer() > 0) {
+                finalSummaryTable.addCell(new Paragraph("CÔNG TY HOÀN TRẢ KHÁCH HÀNG (B - A):").setFont(boldFont).setFontSize(13));
+                finalSummaryTable.addCell(new Paragraph(String.format("%,.0f", billDetails.getRefundToCustomer())).setTextAlignment(TextAlignment.RIGHT).setFont(boldFont).setFontSize(13));
+            } else {
+                finalSummaryTable.addCell(new Paragraph("QUYẾT TOÁN HOÀN TẤT (KHÔNG PHÁT SINH):").setFont(boldFont).setFontSize(13));
+                finalSummaryTable.addCell(new Paragraph("0").setTextAlignment(TextAlignment.RIGHT).setFont(boldFont).setFontSize(13));
+            }
+
+            Cell noteCell = new Cell(1, 2)
+                    .add(new Paragraph("Lưu ý: Số tiền hoàn trả sẽ được xử lý sau khi khách hàng đã thanh toán đầy đủ các chi phí phát sinh (nếu có)."))
+                    .setFont(italicFont)
+                    .setFontSize(9)
+                    .setPaddingTop(8)
+                    .setBorder(null);
+
+            finalSummaryTable.addCell(noteCell);
+            finalSummaryTable.setKeepTogether(true);
+            document.add(finalSummaryTable);
+
+            document.close();
+            log.info("Đã tạo thành công hóa đơn PDF tại: {}", filePath);
+        } catch (Exception e) {
+            log.error("Lỗi khi tạo file PDF hóa đơn", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF hóa đơn.");
         }
     }
 }
