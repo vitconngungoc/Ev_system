@@ -15,6 +15,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     long countByUserAndStatusIn(User user, List<BookingStatus> activeStatuses);
     List<Booking> findAllByInvoicePdfPathIsNotNullAndStation(Station station, Sort sort);
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, LocalDateTime cutoffTime);
+    List<Booking> findByUserAndStatusIn(User user, List<BookingStatus> statuses);
 
     @Query("SELECT COUNT(b) FROM Booking b " +
             "WHERE b.vehicle = :vehicle " +
