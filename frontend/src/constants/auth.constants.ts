@@ -1,47 +1,19 @@
 // Authentication constants
-export const AUTH_TOKEN_KEY = 'authToken';
-export const USER_DATA_KEY = 'user';
-export const REDIRECT_FLAG_KEY = 'isRedirecting';
+export const AUTH_ROUTES = {
+  LOGIN: '/login',
+  REGISTER: '/register',
+  FORGOT_PASSWORD: '/forgot-password',
+  RESET_PASSWORD: '/reset-password',
+  VERIFY_EMAIL: '/verify-email',
+} as const;
 
-// Password requirements
-export const PASSWORD_MIN_LENGTH = 6;
-export const PASSWORD_REQUIREMENTS = {
-  minLength: 6,
-  requireUppercase: true,
-  requireLowercase: true,
-  requireNumber: true,
-  requireSpecialChar: true,
-};
+export const TOKEN_KEY = 'auth_token';
+export const USER_KEY = 'user_data';
 
-// Cancellation limits
-export const MAX_CANCELLATION_COUNT = 3;
-export const CANCELLATION_WARNING_THRESHOLD = 2;
+export const PASSWORD_MIN_LENGTH = 8;
+export const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*[0-9])/;
 
-// Session timeout (in milliseconds)
-export const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+export const PHONE_REGEX = /^(0|\+84)[0-9]{9}$/;
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// OTP settings
-export const OTP_LENGTH = 6;
-export const OTP_EXPIRY_MINUTES = 5;
-
-// Form validation messages
-export const VALIDATION_MESSAGES = {
-  REQUIRED_FIELD: 'This field is required',
-  INVALID_EMAIL: 'Please enter a valid email address',
-  INVALID_PHONE: 'Phone number format is invalid',
-  WEAK_PASSWORD: 'Password must contain uppercase, lowercase, number and special character',
-  PASSWORD_MISMATCH: 'Passwords do not match',
-  TERMS_REQUIRED: 'You must agree to the terms of service',
-};
-
-// API response messages
-export const API_MESSAGES = {
-  LOGIN_SUCCESS: 'Welcome back!',
-  LOGIN_FAILED: 'Login failed. Please check your credentials',
-  REGISTER_SUCCESS: 'Registration successful! Please login',
-  REGISTER_FAILED: 'Registration failed. Please try again',
-  LOGOUT_SUCCESS: 'Logged out successfully',
-  PASSWORD_RESET_SUCCESS: 'Password reset successful',
-  OTP_SENT: 'OTP has been sent to your email',
-  NETWORK_ERROR: 'Network error. Please check your connection',
-};
+export const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
