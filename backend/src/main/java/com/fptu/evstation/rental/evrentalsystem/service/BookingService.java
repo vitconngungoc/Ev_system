@@ -3,7 +3,9 @@ package com.fptu.evstation.rental.evrentalsystem.service;
 import com.fptu.evstation.rental.evrentalsystem.dto.BookingDetailResponse;
 import com.fptu.evstation.rental.evrentalsystem.dto.BookingRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.BookingSummaryResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.CheckInRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.Booking;
+import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 
 import java.util.List;
@@ -14,5 +16,8 @@ public interface BookingService {
     Booking getBookingById(Long bookingId);
     BookingDetailResponse getBookingDetailsById(Long bookingId);
     List<BookingSummaryResponse> getMyBookings(User renter);
+    List<BookingSummaryResponse> getAllBookingsByStation(User staff, String keyword, String status, String date);
+    Map<String, Object> initiateCheckIn(Long bookingId, User staff);
+    Contract processCheckIn(Long bookingId, CheckInRequest req, User staff);
 }
 

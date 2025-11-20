@@ -18,9 +18,10 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class DataInitializer implements CommandLineRunner{
+public class DataInitializer implements CommandLineRunner {
 
     private final RoleRepository roleRepo;
+    private final PenaltyFeeRepository feeRepo;
     private final ModelRepository modelRepository;
     private final StationRepository stationRepository;
     private final VehicleRepository vehicleRepository;
@@ -31,6 +32,7 @@ public class DataInitializer implements CommandLineRunner{
     public void run(String... args) throws Exception {
         log.info("Bắt đầu khởi tạo dữ liệu cơ sở...");
         initRoles();
+        initPenaltyFees();
         initStations();
         initModels();
         initVehicles();
@@ -43,6 +45,38 @@ public class DataInitializer implements CommandLineRunner{
             roleRepo.findByRoleName(r).orElseGet(() ->
                     roleRepo.save(Role.builder().roleName(r).build())
             );
+        }
+    }
+
+    private void initPenaltyFees() {
+        Map<String, Double> fees = Map.of(
+                "Phí vệ sinh xe", 200000.0,
+                "Phí hư hỏng nhẹ (trầy xước, móp nhỏ)", 200000.0,
+                "Phí xử lý vi phạm giao thông", 2000000.0,
+                "Phí trả xe quá hạn (mỗi giờ)", 300000.0,
+                "Phí cứu hộ / kéo xe", 750000.0
+        );
+        fees.forEach((name, amount) -> {
+            if (!feeRepo.existsByFeeName(name)) {
+                PenaltyFee fee = PenaltyFee.builder()
+                        .feeName(name)
+                        .fixedAmount(amount)
+                        .description("Phí cố định được tạo tự động bởi hệ thống.")
+                        .isAdjustment(false)
+                        .build();
+                feeRepo.save(fee);
+            }
+        });
+
+        String adjustmentFeeName = "Phí tùy chỉnh (Adjustment)";
+        if (!feeRepo.existsByFeeName(adjustmentFeeName)) {
+            PenaltyFee adjustmentFee = PenaltyFee.builder()
+                    .feeName(adjustmentFeeName)
+                    .fixedAmount(0.0)
+                    .description("Loại phí dùng để đại diện cho các khoản phí tùy chỉnh.")
+                    .isAdjustment(true)
+                    .build();
+            feeRepo.save(adjustmentFee);
         }
     }
 
