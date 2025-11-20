@@ -13,6 +13,7 @@ import java.util.List;
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
     long countByUserAndStatusIn(User user, List<BookingStatus> activeStatuses);
+    List<Booking> findAllByInvoicePdfPathIsNotNullAndStation(Station station, Sort sort);
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, LocalDateTime cutoffTime);
 
     @Query("SELECT COUNT(b) FROM Booking b " +

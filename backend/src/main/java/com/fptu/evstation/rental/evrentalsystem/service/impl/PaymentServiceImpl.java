@@ -2,9 +2,11 @@ package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.BillResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.PaymentConfirmationRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.PenaltyCalculationRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.repository.*;
+import com.fptu.evstation.rental.evrentalsystem.service.InvoiceService;
 import com.fptu.evstation.rental.evrentalsystem.service.PaymentService;
 import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
 import com.fptu.evstation.rental.evrentalsystem.service.util.QrCodeService;
@@ -20,10 +22,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.NumberFormat;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 
 @Service
@@ -36,7 +41,11 @@ public class PaymentServiceImpl implements PaymentService {
     private final TransactionRepository transactionRepository;
     private final VehicleService vehicleService;
     private final QrCodeService qrCodeService;
+    private final InvoiceService invoiceService;
+    private final ModelRepository modelRepository;
+    private final VehicleHistoryRepository historyRepository;
 
+    private final Path handoverPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "handover_photos");
     private final Path adjustmentPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "adjustments");
     private final ObjectMapper objectMapper;
 
@@ -210,6 +219,211 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
+    public Map<String, Object> confirmFinalPayment(Long bookingId, PaymentConfirmationRequest req, User staff) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking"));
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (req.getConfirmPhotos() == null || req.getConfirmPhotos().isEmpty() || req.getConfirmPhotos().get(0).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ảnh check-out (lúc trả xe) là bắt buộc.");
+        }
+
+        if (booking.getStatus() != BookingStatus.RENTING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn này không ở trạng thái chờ thanh toán.");
+        }
+
+        if (req.getMileage() <= booking.getVehicle().getCurrentMileage()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Số km hiện tại bạn nhập (" + req.getMileage() + " km) không hợp lệ. " +
+                            "Số km trên hệ thống là " + booking.getVehicle().getCurrentMileage() + " km. " +
+                            "Vui lòng kiểm tra lại và nhập số km lớn hơn số km hiện tại trên hệ thống.");
+        }
+
+        VehicleHistory checkInHistory = historyRepository
+                .findFirstByVehicleAndRenterAndActionTypeOrderByActionTimeDesc(
+                        booking.getVehicle(),
+                        booking.getUser(),
+                        VehicleActionType.DELIVERY
+                );
+
+        String conditionAtCheckIn;
+        if (checkInHistory != null) {
+            conditionAtCheckIn = checkInHistory.getConditionBefore();
+        } else {
+            conditionAtCheckIn = "Không rõ (Lỗi không tìm thấy lịch sử check-in)";
+            log.warn("Không tìm thấy lịch sử check-in (DELIVERY) cho Booking ID: {}", bookingId);
+        }
+
+        List<String> photoPaths = new ArrayList<>();
+        for (int i = 0; i < req.getConfirmPhotos().size(); i++) {
+            MultipartFile photo = req.getConfirmPhotos().get(i);
+
+            photoPaths.add(saveHandoverPhoto(photo, bookingId, "checkout", i + 1));
+        }
+        String photoPathsJson = null;
+        try {
+            photoPathsJson = objectMapper.writeValueAsString(photoPaths);
+        } catch (Exception e) {
+            log.error("Lỗi khi chuyển ảnh sang JSON", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi xử lý ảnh check-out.");
+        }
+
+        double totalDue = booking.getFinalFee() != null ? booking.getFinalFee() : 0.0;
+
+        double depositPaid_2_percent = booking.getRentalDeposit() != null ? booking.getRentalDeposit() : 0.0;
+        double depositPaid_500k = booking.isReservationDepositPaid() ? 500000.0 : 0.0;
+        double totalDepositPaid = depositPaid_2_percent + depositPaid_500k;
+
+        Double totalDiscount = transactionDetailRepository.findTotalDiscountByBooking(booking);
+        if (totalDiscount == null) totalDiscount = 0.0;
+
+        double totalCredit = totalDepositPaid + Math.abs(totalDiscount);
+
+        double netSettlement = totalDue - totalCredit;
+
+        Vehicle vehicle = booking.getVehicle();
+        if (req.getBattery() != null) vehicle.setBatteryLevel(req.getBattery().intValue());
+        if (req.getMileage() != null) vehicle.setCurrentMileage(req.getMileage());
+        vehicle.setStatus(VehicleStatus.UNAVAILABLE);
+        vehicleService.saveVehicle(vehicle);
+
+
+        double actualRefundAmount = Math.max(0, -netSettlement);
+        booking.setRefund(actualRefundAmount);
+        completeBooking(booking);
+        try {
+            if (vehicle != null && vehicle.getModel() != null) {
+                Model model = vehicle.getModel();
+                Integer current = model.getRentalCount();
+                if (current == null) current = 0;
+                model.setRentalCount(current + 1);
+                modelRepository.save(model);
+                log.info("Tăng rentalCount cho model {}: {} -> {}", model.getModelName(), current, model.getRentalCount());
+            }
+        } catch (Exception e) {
+
+            log.warn("Không thể cập nhật rentalCount cho model của vehicle {}: {}",
+                    vehicle != null ? vehicle.getVehicleId() : "null", e.getMessage());
+        }
+        if (netSettlement != 0) {
+            String finalStaffNote;
+
+            if (netSettlement > 0) {
+                finalStaffNote = String.format("Quyết toán cuối (Khách trả thêm): %,.0f VNĐ. %s",
+                        netSettlement, req.getStaffNote());
+            } else {
+                finalStaffNote = String.format("Quyết toán cuối (Hoàn tiền cho khách): %,.0f VNĐ. %s",
+                        Math.abs(netSettlement), req.getStaffNote());
+            }
+
+            Transaction finalTransaction = Transaction.builder()
+                    .booking(booking)
+                    .amount(netSettlement)
+                    .paymentMethod(req.getPaymentMethod())
+                    .transactionDate(LocalDateTime.now())
+                    .staff(staff)
+                    .staffNote(finalStaffNote)
+                    .build();
+
+            transactionRepository.save(finalTransaction);
+        }
+
+        try {
+            vehicleService.recordVehicleAction(
+                    vehicle.getVehicleId(),
+                    staff.getUserId(),
+                    booking.getUser().getUserId(),
+                    vehicle.getStation().getStationId(),
+                    VehicleActionType.RETURN,
+                    "Khách hàng " + booking.getUser().getFullName() + " đã trả xe tại trạm "
+                            + vehicle.getStation().getName(),
+                    conditionAtCheckIn,
+                    req.getConditionAfter(),
+                    req.getBattery(),
+                    req.getMileage(),
+                    photoPathsJson
+            );
+        } catch (Exception e) {
+            log.warn("Không thể ghi lịch sử trả xe cho Booking ID {}: {}", bookingId, e.getMessage());
+        }
+
+        log.info("Nhân viên {} đã xác nhận thanh toán và hoàn tất Booking ID: {}", staff.getFullName(), bookingId);
+
+        try {
+            List<TransactionDetail> transactionDetails = transactionDetailRepository.findByBooking(booking);
+            double totalPenaltyFee = transactionDetails.stream()
+                    .filter(td -> td.getAppliedAmount() > 0)
+                    .mapToDouble(TransactionDetail::getAppliedAmount)
+                    .sum();
+
+            double baseRentalFee = totalDue - totalPenaltyFee;
+
+            List<BillResponse.FeeItem> feeItems = new ArrayList<>();
+            for (TransactionDetail td : transactionDetails) {
+                if (td.getAppliedAmount() != 0) {
+                    String feeName = td.getStaffNote() != null ? td.getStaffNote() :
+                            (td.getPenaltyFee() != null ? td.getPenaltyFee().getFeeName() : "Phí không xác định");
+                    String staffNote = td.getAdjustmentNote() != null ? td.getAdjustmentNote() : "";
+
+                    feeItems.add(BillResponse.FeeItem.builder()
+                            .feeName(feeName)
+                            .amount(td.getAppliedAmount())
+                            .staffNote(staffNote)
+                            .adjustmentNote(td.getAdjustmentNote())
+                            .build());
+                }
+            }
+
+            BillResponse billResponse = BillResponse.builder()
+                    .bookingId(bookingId)
+                    .userName(booking.getUser().getFullName())
+                    .dateTime(LocalDateTime.now())
+                    .baseRentalFee(baseRentalFee)
+                    .totalPenaltyFee(totalPenaltyFee)
+                    .downpayPaid(totalDepositPaid)
+                    .totalDiscount(Math.abs(totalDiscount))
+                    .paymentDue(Math.max(0, netSettlement))
+                    .refundToCustomer(Math.max(0, -netSettlement))
+                    .feeItems(feeItems)
+                    .build();
+
+            String invoicePath = invoiceService.generateAndSendInvoice(billResponse);
+            log.info("Hóa đơn đã được tạo và gửi thành công cho Booking ID: {} tại đường dẫn: {}", bookingId, invoicePath);
+        } catch (Exception e) {
+            log.error("Lỗi khi tạo và gửi hóa đơn cho Booking ID {}: {}", bookingId, e.getMessage());
+        }
+
+        NumberFormat nf = NumberFormat.getNumberInstance(new Locale("vi", "VN"));
+        nf.setMaximumFractionDigits(0);
+
+        double amountAbs = Math.abs(netSettlement);
+        String amountStr = nf.format(amountAbs);
+
+        String message;
+        if (netSettlement > 0) {
+            message = "Xác nhận thanh toán thêm " + amountStr + " VNĐ thành công. Đơn hàng đã hoàn tất.";
+        } else if (netSettlement < 0) {
+            message = "Xác nhận hoàn trả cho khách " + amountStr + " VNĐ thành công. Đơn hàng đã hoàn tất.";
+        } else {
+            message = "Xác nhận quyết toán thành công (không phát sinh). Đơn hàng đã hoàn tất.";
+        }
+
+        return Map.of("message", message);
+    }
+
+    @Override
+    @Transactional
     public void confirmDeposit(User staff, Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking."));
@@ -363,6 +577,39 @@ public class PaymentServiceImpl implements PaymentService {
         } catch (IOException e) {
             log.error("Lỗi khi lưu ảnh adjustment", e);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu file ảnh.");
+        }
+    }
+    @Transactional
+    protected void completeBooking(Booking booking) {
+        if (booking.getStatus() == BookingStatus.COMPLETED) {
+            return;
+        }
+        booking.setStatus(BookingStatus.COMPLETED);
+        bookingRepository.save(booking);
+    }
+
+    @Transactional
+    public String saveHandoverPhoto(MultipartFile file, Long bookingId, String type, int index) {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ảnh bàn giao không được để trống.");
+        }
+        try {
+            Path bookingDir = handoverPhotoDir.resolve("booking_" + bookingId);
+            Files.createDirectories(bookingDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+            String fileName = String.format("%s-%d%s", type, index, extension);
+            Path filePath = bookingDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            return "/uploads/handover_photos/booking_" + bookingId + "/" + fileName;
+
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh.");
         }
     }
 }
