@@ -3,6 +3,7 @@ package com.fptu.evstation.rental.evrentalsystem.service.impl;
 import com.fptu.evstation.rental.evrentalsystem.dto.RegisterRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.UpdateProfileRequest;
 import com.fptu.evstation.rental.evrentalsystem.dto.UploadVerificationRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.VerifyRequest;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.repository.RoleRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
@@ -20,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -178,6 +180,35 @@ public class UserServiceImpl implements UserService{
             response.put("reason", user.getRejectionReason());
         }
         return response;
+    }
+
+    @Override
+    public List<User> getPendingVerifications() {
+        return userRepository.findByVerificationStatus(VerificationStatus.PENDING);
+    }
+
+    @Override
+    @Transactional
+    public String processVerification(Long userId, VerifyRequest req) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
+        if (user.getVerificationStatus() != VerificationStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chỉ có thể xử lý các yêu cầu đang ở trạng thái PENDING");
+        }
+        if (!req.isApproved()) {
+            if (req.getReason() == null || req.getReason().trim().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phải nhập lý do khi từ chối");
+            }
+            user.setVerificationStatus(VerificationStatus.REJECTED);
+            user.setRejectionReason(req.getReason());
+            userRepository.save(user);
+            return "Đã từ chối yêu cầu xác minh. Lý do: " + req.getReason();
+        } else {
+            user.setVerificationStatus(VerificationStatus.APPROVED);
+            user.setRejectionReason(null);
+            userRepository.save(user);
+            return "Xác minh người dùng thành công.";
+        }
     }
 
     private void validateFile(MultipartFile file, String fileType) {
