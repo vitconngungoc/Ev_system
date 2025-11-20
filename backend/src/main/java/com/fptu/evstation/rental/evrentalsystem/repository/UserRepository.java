@@ -17,4 +17,5 @@ public interface UserRepository extends JpaRepository<User,Long> {
     boolean existsByCccd(String cccd);
     boolean existsByGplx(String gplx);
     List<User> findByVerificationStatus(VerificationStatus status);
+    List<User> findByStation_StationId(Long stationId);
 }

@@ -1,16 +1,15 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.RegisterRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateProfileRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UploadVerificationRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.VerifyRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.repository.RoleRepository;
+import com.fptu.evstation.rental.evrentalsystem.repository.StationRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.UserService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,7 +29,7 @@ import java.util.Map;
 public class UserServiceImpl implements UserService{
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
-
+    private final StationRepository stationRepository;
     private final Path uploadBaseDir = Paths.get(System.getProperty("user.dir"), "uploads", "verification");
 
     @Override
@@ -237,4 +236,83 @@ public class UserServiceImpl implements UserService{
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu file");
         }
     }
+    @Override
+    public List<UserResponse> getAllUsers() {
+        List<User> users = userRepository.findAll(Sort.by(Sort.Direction.ASC, "fullName"));
+
+        return users.stream().map(user -> {
+            Role role = user.getRole();
+            Station station = user.getStation();
+
+            return UserResponse.builder()
+                    .userId(user.getUserId())
+                    .fullName(user.getFullName())
+                    .email(user.getEmail())
+                    .phone(user.getPhone())
+                    .cccd(user.getCccd())
+                    .gplx(user.getGplx())
+                    .cccdPath1(user.getCccdPath1())
+                    .cccdPath2(user.getCccdPath2())
+                    .gplxPath1(user.getGplxPath1())
+                    .gplxPath2(user.getGplxPath2())
+                    .selfiePath(user.getSelfiePath())
+                    .verificationStatus(user.getVerificationStatus())
+                    .rejectionReason(user.getRejectionReason())
+                    .status(user.getStatus())
+                    .cancellationCount(user.getCancellationCount())
+                    .roleName(role != null ? role.getRoleName() : null)
+                    .stationName(station != null ? station.getName() : null)
+                    .role(user.getRole())
+                    .station(user.getStation())
+                    .build();
+        }).toList();
+    }
+
+    @Override
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User không tồn tại"));
+    }
+    @Override
+    @Transactional
+    public User updateUserRole(Long userId, Long newRoleId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User không tồn tại"));
+
+        Role role = roleRepository.findById(newRoleId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Role không tồn tại"));
+
+        user.setRole(role);
+        return userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public User updateUserStation(Long userId, Long newStationId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "User không tồn tại"));
+
+        Station station = stationRepository.findById(newStationId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Station không tồn tại"));
+
+        user.setStation(station);
+        return userRepository.save(user);
+    }
+    @Override
+    @Transactional
+    public User unlockUserAccount(Long userId) {
+        User user = getUserById(userId);
+
+        if (user.getStatus() == AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tài khoản này không bị khóa.");
+        }
+        user.setStatus(AccountStatus.ACTIVE);
+        user.setCancellationCount(0);
+
+        return userRepository.save(user);
+    }
+
+
 }
