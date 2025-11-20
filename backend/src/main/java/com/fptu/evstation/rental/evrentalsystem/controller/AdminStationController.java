@@ -6,15 +6,18 @@ import com.fptu.evstation.rental.evrentalsystem.entity.Station;
 import com.fptu.evstation.rental.evrentalsystem.entity.Vehicle;
 import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
+import com.fptu.evstation.rental.evrentalsystem.service.ReportService;
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
 import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +29,7 @@ public class AdminStationController {
     private final StationService stationService;
     private final ModelService modelService;
     private final VehicleService vehicleService;
+    private final ReportService reportService;
 
     // --- 1. Quản lý Trạm (Stations) ---
     @PostMapping("/stations")
@@ -177,4 +181,21 @@ public class AdminStationController {
                     .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
         }
     }
+    @GetMapping("/revenue")
+    public ResponseEntity<ReportResponse> getRevenueReport(
+            @RequestParam(required = false) Long stationId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        ReportResponse report;
+        if (stationId != null) {
+            report = reportService.getRevenueByStation(stationId, from, to);
+        }
+        else {
+            report = reportService.getTotalRevenue(from, to);
+        }
+        return ResponseEntity.ok(report);
+    }
+
+
 }
