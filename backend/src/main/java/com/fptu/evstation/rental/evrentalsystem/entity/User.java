@@ -59,11 +59,14 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     private VerificationStatus verificationStatus = VerificationStatus.PENDING;
-    @Column(length = 500)
+    @Column(columnDefinition = "nvarchar(500)")
     private String rejectionReason;
 
     @Enumerated(EnumType.STRING)
     private AccountStatus status = AccountStatus.ACTIVE;
+
+    @Column(nullable = false, columnDefinition = "int default 0")
+    private Integer cancellationCount = 0;
 
     @JsonManagedReference
     @ManyToOne(fetch = FetchType.EAGER)

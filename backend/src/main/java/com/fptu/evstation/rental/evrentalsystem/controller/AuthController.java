@@ -22,7 +22,10 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         User user = userService.register(req);
-        return ResponseEntity.ok(Map.of("message", "Đã đăng ký thành công", "userName", user.getFullName()));
+        return ResponseEntity.ok(Map.of(
+                "message", "Đã đăng ký thành công",
+                "userName", user.getFullName()
+        ));
     }
 
     @PostMapping("/login")

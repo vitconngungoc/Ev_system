@@ -1,5 +1,6 @@
 package com.fptu.evstation.rental.evrentalsystem.dto;
 
+import com.fptu.evstation.rental.evrentalsystem.entity.VehicleType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,8 +23,9 @@ public class VehicleResponse {
     private Double currentMileage;
     private String status;
     private String condition;
-
-    private String vehicleType;
+    private boolean isReservedByMe;
+    private boolean isRentedByMe;
+    private VehicleType vehicleType;
     private Double pricePerHour;
     private Integer seatCount;
     private Double rangeKm;
