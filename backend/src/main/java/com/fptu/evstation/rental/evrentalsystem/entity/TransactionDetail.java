@@ -17,12 +17,10 @@ public class TransactionDetail {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long detailId;
 
-    // Liên kết Booking mà phí này áp dụng
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "bookingId", nullable = false)
     private Booking booking;
 
-    // Liên kết loại phí (từ bảng PenaltyFee)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "feeId", nullable = false)
     private PenaltyFee penaltyFee;
