@@ -18,6 +18,11 @@ import java.util.Map;
 public class VehicleController {
     private final StationService stationService;
     private final VehicleService vehicleService;
+    @GetMapping("/station/{stationId}/stats")
+    public ResponseEntity<?> getVehicleStatsByStation(@PathVariable Long stationId) {
+        Map<String, Object> stats = stationService.getVehicleStatsByStation(stationId);
+        return ResponseEntity.ok(stats);
+    }
 
     @GetMapping("/station/{stationId}/stats")
     public ResponseEntity<?> getVehicleStatsByStation(@PathVariable Long stationId) {

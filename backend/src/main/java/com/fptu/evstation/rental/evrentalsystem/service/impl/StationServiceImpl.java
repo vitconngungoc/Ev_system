@@ -125,6 +125,10 @@ public class StationServiceImpl implements StationService {
 
         return response;
     }
+    @Override
+    @Transactional
+    public List<Map<String, Object>> getAllStationReports() {
+        List<Object[]> results = vehicleRepository.getVehicleStatsGroupedByStation();
 
     @Override
     @Transactional

@@ -323,6 +323,7 @@ public class VehicleServiceImpl implements VehicleService {
         }).toList();
     }
 
+
     @Override
     public Vehicle getVehicleById(Long vehicleId) {
         return vehicleRepository.findById(vehicleId)
@@ -615,6 +616,24 @@ public class VehicleServiceImpl implements VehicleService {
                         .build())
                 .collect(Collectors.toList());
     }
+    @Override
+    public Map<String, Object> checkVehicleSchedule(Long vehicleId, LocalDateTime startTime, LocalDateTime endTime) {
+        Vehicle vehicle = getVehicleById(vehicleId);
+
+        if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+            return Map.of("isAvailable", false, "message", "Xe này hiện không còn khả dụng.");
+        }
+
+        List<BookingStatus> excludedStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                vehicle, startTime, endTime, excludedStatuses
+        );
+
+        if (conflicts > 0) {
+            return Map.of("isAvailable", false, "message", "Xe đã có lịch đặt trong khung giờ này.");
+        }
+
+        return Map.of("isAvailable", true, "message", "Xe khả dụng trong khung giờ này.");
 
     private List<String> getModelImagePaths(Model model) {
         if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {

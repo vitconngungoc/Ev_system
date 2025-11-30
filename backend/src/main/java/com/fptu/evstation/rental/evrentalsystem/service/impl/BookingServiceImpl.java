@@ -49,6 +49,7 @@ public class BookingServiceImpl implements BookingService {
     private final ContractService contractService;
     private final VehicleHistoryRepository historyRepository;
     private final Random random = new Random();
+    private final StationService stationService;
 
     private final Path handoverPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "handover_photos");
 

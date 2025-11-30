@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent } from './ui/card';
 import { toast } from 'sonner';
-import { Mail, Lock, ArrowRight } from 'lucide-react';
+import { Mail, Lock, ArrowRight, ArrowLeft } from 'lucide-react';
 import { apiCall, authenticatedApiCall, API_ENDPOINTS } from '../lib/api';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 
@@ -48,7 +48,21 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
         data.token
       );
 
-      toast.success(`Chào mừng, ${user.fullName}!`);
+      // Show cancellation warning if user has cancellations
+      if (user.cancellationCount && user.cancellationCount > 0) {
+        if (user.cancellationCount >= 2) {
+          toast.warning(`Chào mừng, ${user.fullName}! ⚠️ Cảnh báo: Bạn đã hủy ${user.cancellationCount} lần. Còn ${3 - user.cancellationCount} lần nữa tài khoản sẽ bị khóa vĩnh viễn.`, {
+            duration: 6000,
+          });
+        } else {
+          toast.warning(`Chào mừng, ${user.fullName}! Bạn đã hủy ${user.cancellationCount} lần. Còn ${3 - user.cancellationCount} lần nữa tài khoản sẽ bị khóa.`, {
+            duration: 5000,
+          });
+        }
+      } else {
+        toast.success(`Chào mừng, ${user.fullName}!`);
+      }
+      
       onLogin(data.token, user);
     } catch (error: any) {
       toast.error(error.message || 'Đăng nhập thất bại');
@@ -78,7 +92,21 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
         data.token
       );
 
-      toast.success(`Chào mừng, ${user.fullName}!`);
+      // Show cancellation warning if user has cancellations
+      if (user.cancellationCount && user.cancellationCount > 0) {
+        if (user.cancellationCount >= 2) {
+          toast.warning(`Chào mừng, ${user.fullName}! ⚠️ Cảnh báo: Bạn đã hủy ${user.cancellationCount} lần. Còn ${3 - user.cancellationCount} lần nữa tài khoản sẽ bị khóa vĩnh viễn.`, {
+            duration: 6000,
+          });
+        } else {
+          toast.warning(`Chào mừng, ${user.fullName}! Bạn đã hủy ${user.cancellationCount} lần. Còn ${3 - user.cancellationCount} lần nữa tài khoản sẽ bị khóa.`, {
+            duration: 5000,
+          });
+        }
+      } else {
+        toast.success(`Chào mừng, ${user.fullName}!`);
+      }
+      
       onLogin(data.token, user);
     } catch (error: any) {
       console.error('Google login error:', error);
@@ -95,6 +123,16 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center p-8">
+      {/* Back to Home Button */}
+      <Button
+        onClick={() => onNavigate('home')}
+        variant="ghost"
+        className="fixed top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to Home
+      </Button>
+
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         {/* Left Side - Hero */}
         <div className="relative">
@@ -198,12 +236,12 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
                   </div>
                 </div>
 
-                <div className="w-full">
+                <div className="w-full flex justify-center">
                   <GoogleLogin
                     onSuccess={handleGoogleSuccess}
                     onError={handleGoogleError}
                     size="large"
-                    width="100%"
+                    width={400}
                     text="continue_with"
                     shape="rectangular"
                     logo_alignment="left"
@@ -235,17 +273,35 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
       </div>
 
       {/* Vertical Navigation */}
-      <div className="fixed left-8 top-1/2 -translate-y-1/2 hidden xl:block">
+      <div className="fixed left-8 top-1/2 -translate-y-1/2 hidden xl:block z-40">
         <div className="flex flex-col gap-8 text-xs text-gray-400 uppercase tracking-wider">
-          <button className="rotate-180 hover:text-gray-900 transition-colors" style={{ writingMode: 'vertical-lr' }}>
+          <a 
+            href="https://www.instagram.com/evolvesp68/" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="rotate-180 hover:text-gray-900 transition-colors" 
+            style={{ writingMode: 'vertical-lr' }}
+          >
             Instagram
-          </button>
-          <button className="rotate-180 hover:text-gray-900 transition-colors" style={{ writingMode: 'vertical-lr' }}>
+          </a>
+          <a 
+            href="https://x.com/volve28729" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="rotate-180 hover:text-gray-900 transition-colors" 
+            style={{ writingMode: 'vertical-lr' }}
+          >
             Twitter
-          </button>
-          <button className="rotate-180 hover:text-gray-900 transition-colors" style={{ writingMode: 'vertical-lr' }}>
+          </a>
+          <a 
+            href="https://www.facebook.com/profile.php?id=61583647976497" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="rotate-180 hover:text-gray-900 transition-colors" 
+            style={{ writingMode: 'vertical-lr' }}
+          >
             Facebook
-          </button>
+          </a>
         </div>
       </div>
     </div>

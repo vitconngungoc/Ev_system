@@ -19,7 +19,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AuthController {
     private final AuthService authService;
-    private final UserServiceImpl userService;
+    private final UserService userService;
     private final EmailService emailService;
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
@@ -66,5 +66,10 @@ public class AuthController {
 
         emailService.resetPasswordWithOtp(otp, newPassword, confirmPassword);
         return ResponseEntity.ok(Map.of("message", "Đặt lại mật khẩu thành công"));
+    }
+    @PostMapping("/google")
+    public ResponseEntity<AuthResponse> loginWithGoogle(@RequestBody GoogleIdTokenRequest req) {
+        AuthResponse resp = authService.loginWithGoogle(req.getIdToken());
+        return ResponseEntity.ok(resp);
     }
 }
