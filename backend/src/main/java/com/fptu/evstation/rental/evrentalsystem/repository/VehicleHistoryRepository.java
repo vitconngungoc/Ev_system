@@ -13,8 +13,10 @@ import java.util.List;
 @Repository
 public interface VehicleHistoryRepository extends JpaRepository<VehicleHistory, Long>, JpaSpecificationExecutor<VehicleHistory> {
     List<VehicleHistory> findByVehicle_VehicleIdOrderByActionTimeDesc(Long vehicleId);
+
     List<VehicleHistory> findByRenter_UserIdOrderByActionTimeDesc(Long renterId);
+
     VehicleHistory findFirstByVehicleAndRenterAndActionTypeOrderByActionTimeDesc(Vehicle vehicle, User user, VehicleActionType vehicleActionType);
+
     VehicleHistory findFirstByVehicleOrderByActionTimeDesc(Vehicle vehicle);
-    VehicleHistory findFirstByRenterAndActionTypeOrderByActionTimeDesc(User renter, VehicleActionType actionType);
 }

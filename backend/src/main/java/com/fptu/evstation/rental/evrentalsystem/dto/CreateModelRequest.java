@@ -22,12 +22,10 @@ public class CreateModelRequest {
     private Double rangeKm;
     private String features;
     private Double pricePerHour;
-    private Double initialValue;
     private String description;
     private List<String> imagePaths;
     @CreationTimestamp
     private LocalDateTime createdAt;
-
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 }

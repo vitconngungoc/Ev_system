@@ -4,11 +4,11 @@ import com.fptu.evstation.rental.evrentalsystem.entity.Rating;
 import com.fptu.evstation.rental.evrentalsystem.entity.Station;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.repository.RatingRepository;
-import com.fptu.evstation.rental.evrentalsystem.service.RatingService;
+
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
+import com.fptu.evstation.rental.evrentalsystem.service.RatingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
 import java.util.List;
 
 @Service
@@ -41,5 +41,4 @@ public class RatingServiceImpl implements RatingService {
         Double avg = ratingRepository.findAverageStarsByStation(station);
         return avg != null ? avg : 0.0;
     }
-
 }

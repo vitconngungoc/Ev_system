@@ -30,6 +30,7 @@ public class Vehicle {
     @Enumerated(EnumType.STRING)
     private VehicleStatus status = VehicleStatus.AVAILABLE;
 
+    // Liên kết với Station
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "stationId", nullable = false)
     private Station station;
@@ -41,11 +42,22 @@ public class Vehicle {
     @Column(nullable = false)
     private VehicleCondition condition = VehicleCondition.GOOD;
 
+    @Column(nullable = false)
+    private Double depositAmount;
+
+    @Column(nullable = false, unique = true, length = 17)
+    private String vinNumber;
+
+    @Column(nullable = false, unique = true, length = 30)
+    private String engineNumber;
+
+    @Column(nullable = false)
+    private Integer manufacturingYear;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(columnDefinition = "TEXT")
     private String DamageReportPhotos;
-
 }

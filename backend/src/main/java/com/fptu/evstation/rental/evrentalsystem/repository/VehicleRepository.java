@@ -16,9 +16,23 @@ import java.util.List;
 @Repository
 public interface VehicleRepository extends JpaRepository<Vehicle, Long>, JpaSpecificationExecutor<Vehicle> {
     boolean existsByLicensePlate(String licensePlate);
+
+    boolean existsByVinNumber(String vinNumber);
+
+    boolean existsByEngineNumber(String engineNumber);
+
+    @Query("SELECT v FROM Vehicle v WHERE v.vinNumber = :vinNumber AND v.vehicleId != :vehicleId")
+    List<Vehicle> findByVinNumberExcludingId(@Param("vinNumber") String vinNumber, @Param("vehicleId") Long vehicleId);
+
+    @Query("SELECT v FROM Vehicle v WHERE v.engineNumber = :engineNumber AND v.vehicleId != :vehicleId")
+    List<Vehicle> findByEngineNumberExcludingId(@Param("engineNumber") String engineNumber, @Param("vehicleId") Long vehicleId);
+
     long countByStation(Station station);
+
     long countByModelAndStation(Model model, Station station);
+
     List<Vehicle> findByStationAndModelAndStatusNotIn(Station station, Model model, List<VehicleStatus> statuses);
+
     @Query("SELECT v.status, COUNT(v) FROM Vehicle v WHERE v.station = :station GROUP BY v.status")
     List<Object[]> countVehiclesByStatus(@Param("station") Station station);
 
@@ -30,4 +44,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long>, JpaSpec
 
     @Query("SELECT v.model.modelId FROM Vehicle v WHERE v.station = :station GROUP BY v.model.modelId")
     List<Long> findDistinctModelIdsByStation(@Param("station") Station station);
+
+    @Query("SELECT v FROM Vehicle v " +
+            "LEFT JOIN FETCH v.station " +
+            "LEFT JOIN FETCH v.model " +
+            "WHERE v.station = :station")
+    List<Vehicle> findByStationWithDetails(@Param("station") Station station, Sort sort);
 }

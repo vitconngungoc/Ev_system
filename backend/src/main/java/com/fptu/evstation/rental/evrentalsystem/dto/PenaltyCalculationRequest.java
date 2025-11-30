@@ -11,7 +11,6 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PenaltyCalculationRequest {
-
     private List<SelectedFee> selectedFees;
 
     private CustomFee customFee;

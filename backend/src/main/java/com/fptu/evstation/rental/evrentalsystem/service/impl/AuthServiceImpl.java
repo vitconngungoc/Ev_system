@@ -31,6 +31,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Value("${google.clientId}")
     private String googleClientId;
+
     @Override
     @Transactional
     public AuthResponse login(LoginRequest req) {
@@ -53,19 +54,6 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void logout(String token) {
         tokenService.deleteToken(token);
-    }
-
-    @Override
-    public User validateTokenAndGetUser(String token) {
-        return tokenService.validateTokenAndGetUser(token);
-    }
-
-    @Override
-    public String getTokenFromHeader(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Yêu cầu thiếu token xác thực");
-        }
-        return authHeader.substring(7);
     }
 
     @Override
@@ -114,5 +102,18 @@ public class AuthServiceImpl implements AuthService {
 
         AuthToken authToken = tokenService.createToken(user);
         return new AuthResponse(authToken.getToken(), authToken.getExpiresAt(), user.getFullName());
+    }
+
+    @Override
+    public User validateTokenAndGetUser(String token) {
+        return tokenService.validateTokenAndGetUser(token);
+    }
+
+    @Override
+    public String getTokenFromHeader(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Yêu cầu thiếu token xác thực");
+        }
+        return authHeader.substring(7);
     }
 }

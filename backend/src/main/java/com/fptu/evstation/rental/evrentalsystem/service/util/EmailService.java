@@ -29,12 +29,10 @@ public class EmailService {
     private final PasswordResetRepository tokenRepo;
     private final UserRepository userRepo;
 
-    // Tạo OTP dạng số 6 chữ số
     private String generateOtp() {
         return String.valueOf(100000 + new Random().nextInt(900000));
     }
 
-    // Tạo OTP và gửi email
     @Transactional
     public String createPasswordResetToken(String email) {
         User user = userRepo.findByEmail(email)
@@ -92,12 +90,10 @@ public class EmailService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP không hợp lệ"));
 
         if (resetToken.getExpiryDate().isBefore(LocalDateTime.now())) {
-            // token hết hạn
-            tokenRepo.delete(resetToken); // dọn dẹp luôn
+            tokenRepo.delete(resetToken);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP đã hết hạn");
         }
 
-        // policy mật khẩu (giữ giống bạn trước đó)
         String passwordPattern = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{6,}$";
         if (!Pattern.matches(passwordPattern, newPassword)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -110,6 +106,7 @@ public class EmailService {
 
         tokenRepo.deleteByUser(user);
     }
+
     public void sendInvoiceWithAttachment(String toEmail, String customerName, String invoiceCode, File pdfFile) {
         try {
             MimeMessage message = mailSender.createMimeMessage();

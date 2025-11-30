@@ -3,10 +3,7 @@ package com.fptu.evstation.rental.evrentalsystem.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
-import com.fptu.evstation.rental.evrentalsystem.repository.BookingRepository;
-import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
-import com.fptu.evstation.rental.evrentalsystem.repository.VehicleHistoryRepository;
-import com.fptu.evstation.rental.evrentalsystem.repository.VehicleRepository;
+import com.fptu.evstation.rental.evrentalsystem.repository.*;
 import com.fptu.evstation.rental.evrentalsystem.service.ModelService;
 import com.fptu.evstation.rental.evrentalsystem.service.StationService;
 import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
@@ -30,10 +27,7 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -41,21 +35,40 @@ import java.util.stream.Collectors;
 @Slf4j
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleRepository vehicleRepository;
-    private final BookingRepository bookingRepository;
-    private final StationService stationService;
-    private final ModelService modelService;
-    private final ObjectMapper objectMapper;
     private final VehicleHistoryRepository historyRepository;
-    private final UserRepository userRepository;
     private final BookingRepository bookingRepository;
-  
+    private final UserRepository userRepository;
+    private final ObjectMapper objectMapper;
     private final Path damageReportDir = Paths.get(System.getProperty("user.dir"), "uploads", "damage_reports");
 
+    private final StationService stationService;
+    private final ModelService modelService;
+
     @Override
+    @Transactional
     public VehicleResponse createVehicle(CreateVehicleRequest request) {
         if (vehicleRepository.existsByLicensePlate(request.getLicensePlate())) {
             throw new RuntimeException("Biển số xe đã tồn tại!");
         }
+
+        if (vehicleRepository.existsByVinNumber(request.getVinNumber())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Số khung (VIN) '" + request.getVinNumber() + "' đã tồn tại trong hệ thống! " +
+                            "Mỗi xe phải có số khung duy nhất. Vui lòng kiểm tra lại.");
+        }
+
+        if (vehicleRepository.existsByEngineNumber(request.getEngineNumber())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Số máy '" + request.getEngineNumber() + "' đã tồn tại trong hệ thống! " +
+                            "Mỗi xe phải có số máy duy nhất. Vui lòng kiểm tra lại.");
+        }
+
+        int currentYear = java.time.Year.now().getValue();
+        if (request.getManufacturingYear() > currentYear) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Năm sản xuất (" + request.getManufacturingYear() + ") không được lớn hơn năm hiện tại (" + currentYear + ")!");
+        }
+
         Model model = modelService.getModelById(request.getModelId());
         Station station = stationService.getStationById(request.getStationId());
 
@@ -67,6 +80,10 @@ public class VehicleServiceImpl implements VehicleService {
                 .currentMileage(request.getCurrentMileage())
                 .status(VehicleStatus.valueOf(request.getStatus()))
                 .condition(VehicleCondition.valueOf(request.getCondition()))
+                .depositAmount(request.getDepositAmount())
+                .vinNumber(request.getVinNumber())
+                .engineNumber(request.getEngineNumber())
+                .manufacturingYear(request.getManufacturingYear())
                 .build();
 
         Vehicle savedVehicle = vehicleRepository.save(vehicle);
@@ -89,14 +106,48 @@ public class VehicleServiceImpl implements VehicleService {
                 .description(model.getDescription())
                 .imagePaths(getModelImagePaths(model))
                 .createdAt(savedVehicle.getCreatedAt())
+                .depositAmount(savedVehicle.getDepositAmount())
+                .vinNumber(savedVehicle.getVinNumber())
+                .engineNumber(savedVehicle.getEngineNumber())
+                .manufacturingYear(savedVehicle.getManufacturingYear())
                 .build();
     }
 
     @Override
+    @Transactional
     public Vehicle updateVehicle(Long id, UpdateVehicleDetailsRequest request) {
         Vehicle vehicle = vehicleRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Không tìm thấy xe ID " + id));
+
+        if (request.getVinNumber() != null && !request.getVinNumber().equals(vehicle.getVinNumber())) {
+            List<Vehicle> existingVehicles = vehicleRepository.findByVinNumberExcludingId(request.getVinNumber(), id);
+            if (!existingVehicles.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Số khung (VIN) '" + request.getVinNumber() + "' đã được sử dụng bởi xe khác (ID: " +
+                                existingVehicles.get(0).getVehicleId() + ", Biển số: " + existingVehicles.get(0).getLicensePlate() + ")! " +
+                                "Mỗi xe phải có số khung duy nhất.");
+            }
+        }
+
+        if (request.getEngineNumber() != null && !request.getEngineNumber().equals(vehicle.getEngineNumber())) {
+            List<Vehicle> existingVehicles = vehicleRepository.findByEngineNumberExcludingId(request.getEngineNumber(), id);
+            if (!existingVehicles.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Số máy '" + request.getEngineNumber() + "' đã được sử dụng bởi xe khác (ID: " +
+                                existingVehicles.get(0).getVehicleId() + ", Biển số: " + existingVehicles.get(0).getLicensePlate() + ")! " +
+                                "Mỗi xe phải có số máy duy nhất.");
+            }
+        }
+
+        if (request.getManufacturingYear() != null) {
+            int currentYear = java.time.Year.now().getValue();
+            if (request.getManufacturingYear() > currentYear) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Năm sản xuất (" + request.getManufacturingYear() + ") không được lớn hơn năm hiện tại (" + currentYear + ")!");
+            }
+        }
+
         if (request.getLicensePlate() != null)
             vehicle.setLicensePlate(request.getLicensePlate());
         if (request.getCurrentMileage() != null)
@@ -107,6 +158,14 @@ public class VehicleServiceImpl implements VehicleService {
             vehicle.setCondition(request.getNewCondition());
         if (request.getStatus() != null)
             vehicle.setStatus(request.getStatus());
+        if (request.getDepositAmount() != null)
+            vehicle.setDepositAmount(request.getDepositAmount());
+        if (request.getVinNumber() != null)
+            vehicle.setVinNumber(request.getVinNumber());
+        if (request.getEngineNumber() != null)
+            vehicle.setEngineNumber(request.getEngineNumber());
+        if (request.getManufacturingYear() != null)
+            vehicle.setManufacturingYear(request.getManufacturingYear());
         if (request.getModelId() != null) {
             Model model = modelService.getModelById(request.getModelId());
             vehicle.setModel(model);
@@ -122,54 +181,76 @@ public class VehicleServiceImpl implements VehicleService {
 
     @Override
     @Transactional
-    public Vehicle saveVehicle(Vehicle vehicle) {
-        return vehicleRepository.save(vehicle);
-    }
-
-    @Override
     public void deleteVehicle(Long id) {
-        Vehicle vehicle = getVehicleById(id);
+        Vehicle vehicle = vehicleRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy xe ID " + id));
         if (vehicle.getStatus() == VehicleStatus.RENTED) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể xóa xe đang RENTED.");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Không thể xóa xe đang trong trạng thái 'RENTED'.");
         }
         vehicleRepository.delete(vehicle);
     }
 
     @Override
-    public Vehicle getVehicleById(Long vehicleId) {
-        return vehicleRepository.findById(vehicleId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe với ID: " + vehicleId));
+    public List<VehicleResponse> getAllVehiclesByStation(Station station) {
+        Sort sort = Sort.by(Sort.Direction.DESC, "createdAt");
+
+        List<Vehicle> vehicles = vehicleRepository.findByStationWithDetails(station, sort);
+
+        return vehicles.stream().map(vehicle -> {
+            Model model = vehicle.getModel();
+            return VehicleResponse.builder()
+                    .vehicleId(vehicle.getVehicleId())
+                    .licensePlate(vehicle.getLicensePlate())
+                    .batteryLevel(vehicle.getBatteryLevel())
+                    .modelName(model.getModelName())
+                    .stationName(vehicle.getStation().getName())
+                    .stationId(vehicle.getStation().getStationId())
+                    .currentMileage(vehicle.getCurrentMileage())
+                    .status(vehicle.getStatus().name())
+                    .condition(vehicle.getCondition().name())
+                    .vehicleType(model.getVehicleType())
+                    .pricePerHour(model.getPricePerHour())
+                    .seatCount(model.getSeatCount())
+                    .rangeKm(model.getRangeKm())
+                    .features(model.getFeatures())
+                    .description(model.getDescription())
+                    .imagePaths(getModelImagePaths(model))
+                    .depositAmount(vehicle.getDepositAmount())
+                    .vinNumber(vehicle.getVinNumber())
+                    .engineNumber(vehicle.getEngineNumber())
+                    .manufacturingYear(vehicle.getManufacturingYear())
+                    .build();
+        }).toList();
     }
 
     @Override
-    public VehicleResponse getVehicleDetailsById(Long id) {
-        Vehicle vehicle = vehicleRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "Không tìm thấy xe với ID: " + id));
+    public List<VehicleResponse> getVehiclesByModelAndStation(Long modelId, Long stationId, User requestingUser){
+        Station station = stationService.getStationById(stationId);
+        Model model = modelService.getModelById(modelId);
 
-        Model model = vehicle.getModel();
-        Station station = vehicle.getStation();
-        List<String> imagePathsList = getModelImagePaths(model);
+        List<VehicleStatus> excluded = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excluded);
 
-        return VehicleResponse.builder()
-                .vehicleId(vehicle.getVehicleId())
-                .licensePlate(vehicle.getLicensePlate())
-                .status(vehicle.getStatus().name())
-                .condition(vehicle.getCondition().name())
-                .batteryLevel(vehicle.getBatteryLevel())
-                .currentMileage(vehicle.getCurrentMileage())
-                .modelName(model != null ? model.getModelName() : null)
-                .stationId(station != null ? station.getStationId() : null)
-                .stationName(station != null ? station.getName() : null)
-                .vehicleType(model != null ? model.getVehicleType() : null)
-                .pricePerHour(model != null ? model.getPricePerHour() : null)
-                .seatCount(model != null ? model.getSeatCount() : null)
-                .rangeKm(model != null ? model.getRangeKm() : null)
-                .features(model != null ? model.getFeatures() : null)
-                .description(model != null ? model.getDescription() : null)
-                .imagePaths(imagePathsList)
-                .createdAt(vehicle.getCreatedAt())
-                .build();
+        final Map<Long, BookingStatus> userActiveBookingMap;
+
+        if (requestingUser != null) {
+            List<BookingStatus> activeStatuses = List.of(BookingStatus.CONFIRMED, BookingStatus.RENTING);
+            List<Booking> userActiveBookings = bookingRepository.findByUserAndStatusIn(requestingUser, activeStatuses);
+
+            userActiveBookingMap = userActiveBookings.stream()
+                    .filter(b -> b.getVehicle() != null)
+                    .collect(Collectors.toMap(
+                            b -> b.getVehicle().getVehicleId(),
+                            Booking::getStatus,
+                            (BookingStatus existing, BookingStatus replacement) -> existing
+                    ));
+        } else {
+            userActiveBookingMap = new HashMap<>();
+        }
+
+        return vehicles.stream().map(v -> convertToResponse(v, userActiveBookingMap)).toList();
     }
 
     @Override
@@ -234,91 +315,60 @@ public class VehicleServiceImpl implements VehicleService {
                     .features(model.getFeatures())
                     .description(model.getDescription())
                     .imagePaths(getModelImagePaths(model))
+                    .depositAmount(vehicle.getDepositAmount())
+                    .vinNumber(vehicle.getVinNumber())
+                    .engineNumber(vehicle.getEngineNumber())
+                    .manufacturingYear(vehicle.getManufacturingYear())
                     .build();
         }).toList();
     }
 
 
     @Override
-    public List<VehicleResponse> getVehiclesByModelAndStation(Long modelId, Long stationId, User requestingUser){
-        Station station = stationService.getStationById(stationId);
-        Model model = modelService.getModelById(modelId);
-
-        List<VehicleStatus> excluded = List.of(VehicleStatus.UNAVAILABLE);
-        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excluded);
-
-        final Map<Long, BookingStatus> userActiveBookingMap;
-
-        if (requestingUser != null) {
-            List<BookingStatus> activeStatuses = List.of(BookingStatus.CONFIRMED, BookingStatus.RENTING);
-            List<Booking> userActiveBookings = bookingRepository.findByUserAndStatusIn(requestingUser, activeStatuses);
-
-            userActiveBookingMap = userActiveBookings.stream()
-                    .filter(b -> b.getVehicle() != null)
-                    .collect(Collectors.toMap(
-                            b -> b.getVehicle().getVehicleId(),
-                            Booking::getStatus,
-                            (BookingStatus existing, BookingStatus replacement) -> existing
-                    ));
-        } else {
-            userActiveBookingMap = new HashMap<>();
-        }
-
-        return vehicles.stream().map(v -> convertToResponse(v, userActiveBookingMap)).toList();
+    public Vehicle getVehicleById(Long vehicleId) {
+        return vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy xe với ID: " + vehicleId));
     }
 
     @Override
-    public List<VehicleAvailabilityResponse> getAvailableVehiclesByModel(Long modelId, Long stationId,
-                                                                         LocalDateTime startTime, LocalDateTime endTime) {
-        Station station = stationService.getStationById(stationId);
-        Model model = modelService.getModelById(modelId);
+    public VehicleResponse getVehicleDetailsById(Long id) {
+        Vehicle vehicle = vehicleRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy xe với ID: " + id));
 
-        List<VehicleStatus> excludedStatuses = List.of(VehicleStatus.UNAVAILABLE);
-        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excludedStatuses);
+        Model model = vehicle.getModel();
+        Station station = vehicle.getStation();
+        List<String> imagePathsList = getModelImagePaths(model);
 
-        List<BookingStatus> excludedBookingStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
-
-        return vehicles.stream()
-                .map(vehicle -> {
-                    boolean isAvailable = true;
-                    String message = "Xe khả dụng trong khung giờ này";
-
-                    if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
-                        isAvailable = false;
-                        message = "Xe hiện không còn khả dụng";
-                    } else if (startTime != null && endTime != null) {
-                        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
-                                vehicle, startTime, endTime, excludedBookingStatuses);
-
-                        if (conflicts > 0) {
-                            isAvailable = false;
-                            message = "Xe đã có lịch đặt trong khung giờ này";
-                        }
-                    }
-
-                    return VehicleAvailabilityResponse.builder()
-                            .vehicleId(vehicle.getVehicleId())
-                            .licensePlate(vehicle.getLicensePlate())
-                            .batteryLevel(vehicle.getBatteryLevel())
-                            .currentMileage(vehicle.getCurrentMileage())
-                            .status(vehicle.getStatus())
-                            .condition(vehicle.getCondition())
-                            .isAvailable(isAvailable)
-                            .availabilityNote(message)
-                            .modelId(model.getModelId())
-                            .modelName(model.getModelName())
-                            .stationId(station.getStationId())
-                            .stationName(station.getName())
-                            .build();
-                })
-                .collect(Collectors.toList());
+        return VehicleResponse.builder()
+                .vehicleId(vehicle.getVehicleId())
+                .licensePlate(vehicle.getLicensePlate())
+                .status(vehicle.getStatus().name())
+                .condition(vehicle.getCondition().name())
+                .batteryLevel(vehicle.getBatteryLevel())
+                .currentMileage(vehicle.getCurrentMileage())
+                .modelName(model != null ? model.getModelName() : null)
+                .stationId(station != null ? station.getStationId() : null)
+                .stationName(station != null ? station.getName() : null)
+                .vehicleType(model != null ? model.getVehicleType() : null)
+                .pricePerHour(model != null ? model.getPricePerHour() : null)
+                .seatCount(model != null ? model.getSeatCount() : null)
+                .rangeKm(model != null ? model.getRangeKm() : null)
+                .features(model != null ? model.getFeatures() : null)
+                .description(model != null ? model.getDescription() : null)
+                .imagePaths(imagePathsList)
+                .createdAt(vehicle.getCreatedAt())
+                .depositAmount(vehicle.getDepositAmount())
+                .vinNumber(vehicle.getVinNumber())
+                .engineNumber(vehicle.getEngineNumber())
+                .manufacturingYear(vehicle.getManufacturingYear())
+                .build();
     }
 
-    private List<String> getModelImagePaths(Model model) {
-        if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {
-            return new ArrayList<>();
-        }
-        return List.of(model.getImagePaths().split(","));
+    @Override
+    @Transactional
+    public Vehicle saveVehicle(Vehicle vehicle) {
+        return vehicleRepository.save(vehicle);
     }
 
     @Override
@@ -405,8 +455,31 @@ public class VehicleServiceImpl implements VehicleService {
         return vehicleRepository.save(vehicle);
     }
 
+    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
+        try {
+            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
+            Files.createDirectories(vehicleDir);
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+            String fileName = String.format("damage-%d%s", index, extension);
+            Path filePath = vehicleDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
+            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
+            return relativePath;
+
+        } catch (IOException e) {
+            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
+        }
+    }
+
     @Override
-    @Transactional
     public VehicleHistory recordVehicleAction(Long vehicleId, Long staffId, Long renterId, Long stationId, VehicleActionType type, String note, String conditionBefore, String conditionAfter, Integer battery, Double mileage, String photoPathsJson) {
 
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
@@ -428,9 +501,9 @@ public class VehicleServiceImpl implements VehicleService {
                 .mileage(mileage)
                 .photoPaths(photoPathsJson)
                 .build();
+
         return historyRepository.save(history);
     }
-
     @Override
     public List<VehicleHistoryResponse> getVehicleHistory(Long stationId, LocalDate from, LocalDate to, VehicleType vehicleType, String licensePlate) {
         Sort sort = Sort.by(Sort.Direction.DESC, "actionTime");
@@ -467,7 +540,6 @@ public class VehicleServiceImpl implements VehicleService {
                 root.fetch("staff", JoinType.LEFT);
                 root.fetch("renter", JoinType.LEFT);
                 root.fetch("station", JoinType.LEFT);
-                query.distinct(true);
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));
@@ -476,22 +548,30 @@ public class VehicleServiceImpl implements VehicleService {
         List<VehicleHistory> histories = historyRepository.findAll(spec, sort);
 
         return histories.stream()
-                .map(h -> VehicleHistoryResponse.builder()
-                        .historyId(h.getHistoryId())
-                        .vehicleType(h.getVehicle() != null ? h.getVehicle().getModel().getVehicleType() : null)
-                        .licensePlate(h.getVehicle() != null ? h.getVehicle().getLicensePlate() : null)
-                        .staffName(h.getStaff() != null ? h.getStaff().getFullName() : null)
-                        .renterName(h.getRenter() != null ? h.getRenter().getFullName() : null)
-                        .stationName(h.getStation() != null ? h.getStation().getName() : null)
-                        .actionType(h.getActionType().name())
-                        .note(h.getNote())
-                        .conditionBefore(h.getConditionBefore())
-                        .conditionAfter(h.getConditionAfter())
-                        .batteryLevel(h.getBatteryLevel())
-                        .mileage(h.getMileage())
-                        .photoPath(h.getPhotoPaths())
-                        .actionTime(h.getActionTime())
-                        .build())
+                .map(h -> {
+                    try {
+                        return VehicleHistoryResponse.builder()
+                                .historyId(h.getHistoryId())
+                                .vehicleType(h.getVehicle() != null ? h.getVehicle().getModel().getVehicleType() : null)
+                                .licensePlate(h.getVehicle() != null ? h.getVehicle().getLicensePlate() : null)
+                                .staffName(h.getStaff() != null ? h.getStaff().getFullName() : null)
+                                .renterName(h.getRenter() != null ? h.getRenter().getFullName() : null)
+                                .stationName(h.getStation() != null ? h.getStation().getName() : null)
+                                .actionType(h.getActionType().name())
+                                .note(h.getNote())
+                                .conditionBefore(h.getConditionBefore())
+                                .conditionAfter(h.getConditionAfter())
+                                .batteryLevel(h.getBatteryLevel())
+                                .mileage(h.getMileage())
+                                .photoPath(h.getPhotoPaths())
+                                .actionTime(h.getActionTime())
+                                .build();
+                    } catch (Exception e) {
+                        System.err.println("Error processing history record " + h.getHistoryId() + ": " + e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(response -> response != null)
                 .collect(Collectors.toList());
     }
 
@@ -555,6 +635,13 @@ public class VehicleServiceImpl implements VehicleService {
 
         return Map.of("isAvailable", true, "message", "Xe khả dụng trong khung giờ này.");
 
+    private List<String> getModelImagePaths(Model model) {
+        if (model == null || model.getImagePaths() == null || model.getImagePaths().isBlank()) {
+            return new ArrayList<>();
+        }
+        return List.of(model.getImagePaths().split(","));
+    }
+
     private VehicleResponse convertToResponse(Vehicle vehicle, Map<Long, BookingStatus> userActiveBookingMap) {
         Model model = vehicle.getModel();
         List<String> paths = getModelImagePaths(model);
@@ -593,30 +680,57 @@ public class VehicleServiceImpl implements VehicleService {
                 .createdAt(vehicle.getCreatedAt())
                 .isReservedByMe(isReservedByMe)
                 .isRentedByMe(isRentedByMe)
+                .depositAmount(vehicle.getDepositAmount())
+                .vinNumber(vehicle.getVinNumber())
+                .engineNumber(vehicle.getEngineNumber())
+                .manufacturingYear(vehicle.getManufacturingYear())
                 .build();
     }
 
-    protected String saveDamageReportPhoto(MultipartFile file, Long vehicleId, int index) {
-        try {
-            Path vehicleDir = damageReportDir.resolve("vehicle_" + vehicleId);
-            Files.createDirectories(vehicleDir);
+    @Override
+    public List<VehicleAvailabilityResponse> getAvailableVehiclesByModel(Long modelId, Long stationId,
+                                                                         LocalDateTime startTime, LocalDateTime endTime) {
+        Station station = stationService.getStationById(stationId);
+        Model model = modelService.getModelById(modelId);
 
-            String originalFilename = file.getOriginalFilename();
-            String extension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
-            }
-            String fileName = String.format("damage-%d%s", index, extension);
-            Path filePath = vehicleDir.resolve(fileName);
-            file.transferTo(filePath);
+        List<VehicleStatus> excludedStatuses = List.of(VehicleStatus.UNAVAILABLE);
+        List<Vehicle> vehicles = vehicleRepository.findByStationAndModelAndStatusNotIn(station, model, excludedStatuses);
 
-            String relativePath = "/uploads/damage_reports/vehicle_" + vehicleId + "/" + fileName;
-            log.info("Đã lưu ảnh báo cáo hư hỏng tại: {}", relativePath);
-            return relativePath;
+        List<BookingStatus> excludedBookingStatuses = List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
 
-        } catch (IOException e) {
-            log.error("Lỗi khi lưu ảnh báo cáo hư hỏng cho xe ID: " + vehicleId, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh báo cáo.");
-        }
+        return vehicles.stream()
+                .map(vehicle -> {
+                    boolean isAvailable = true;
+                    String message = "Xe khả dụng trong khung giờ này";
+
+                    if (vehicle.getStatus() != VehicleStatus.AVAILABLE) {
+                        isAvailable = false;
+                        message = "Xe hiện không còn khả dụng";
+                    } else if (startTime != null && endTime != null) {
+                        long conflicts = bookingRepository.countOverlappingBookingsForVehicle(
+                                vehicle, startTime, endTime, excludedBookingStatuses);
+
+                        if (conflicts > 0) {
+                            isAvailable = false;
+                            message = "Xe đã có lịch đặt trong khung giờ này";
+                        }
+                    }
+
+                    return VehicleAvailabilityResponse.builder()
+                            .vehicleId(vehicle.getVehicleId())
+                            .licensePlate(vehicle.getLicensePlate())
+                            .batteryLevel(vehicle.getBatteryLevel())
+                            .currentMileage(vehicle.getCurrentMileage())
+                            .status(vehicle.getStatus())
+                            .condition(vehicle.getCondition())
+                            .isAvailable(isAvailable)
+                            .availabilityNote(message)
+                            .modelId(model.getModelId())
+                            .modelName(model.getModelName())
+                            .stationId(station.getStationId())
+                            .stationName(station.getName())
+                            .build();
+                })
+                .collect(Collectors.toList());
     }
 }

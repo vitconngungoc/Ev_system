@@ -1,18 +1,15 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.AuthResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.GoogleIdTokenRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.LoginRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.RegisterRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.service.AuthService;
-import com.fptu.evstation.rental.evrentalsystem.service.UserService;
+import com.fptu.evstation.rental.evrentalsystem.service.impl.UserServiceImpl;
 import com.fptu.evstation.rental.evrentalsystem.service.util.EmailService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
@@ -37,6 +34,12 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest req) {
         AuthResponse authResponse = authService.login(req);
         return ResponseEntity.ok(authResponse);
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<AuthResponse> loginWithGoogle(@RequestBody GoogleIdTokenRequest req) {
+        AuthResponse resp = authService.loginWithGoogle(req.getIdToken());
+        return ResponseEntity.ok(resp);
     }
 
     @PostMapping("/logout")

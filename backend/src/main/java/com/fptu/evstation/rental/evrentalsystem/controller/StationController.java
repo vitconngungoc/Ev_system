@@ -1,6 +1,10 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.*;
+import com.fptu.evstation.rental.evrentalsystem.dto.ModelResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.ModelSearchRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.ModelWithAvailabilityResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.VehicleAvailabilityResponse;
+import com.fptu.evstation.rental.evrentalsystem.dto.VehicleResponse;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.service.*;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +27,7 @@ public class StationController {
     private final RatingService ratingService;
     private final AuthService authService;
     private final VehicleService vehicleService;
+
 
     @GetMapping
     public ResponseEntity<List<Station>> getAllPublicStations() {
@@ -63,6 +68,34 @@ public class StationController {
         return ResponseEntity.ok(vehicleService.getVehiclesByModelAndStation(modelId, stationId, user));
     }
 
+    @PostMapping("/rating")
+    public ResponseEntity<?> addRating(@RequestHeader("Authorization") String authHeader,
+                                       @RequestBody Map<String, Object> request) {
+        User user = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+
+        if (user.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản bị khóa không thể đánh giá.");
+        }
+
+        Long stationId = ((Number) request.get("stationId")).longValue();
+        int stars = (int) request.get("stars");
+        String comment = (String) request.get("comment");
+
+        Rating saved = ratingService.saveRating(stationId, stars, comment, user);
+        return ResponseEntity.ok(saved);
+    }
+
+    @GetMapping("/rating/{stationId}")
+    public ResponseEntity<List<Rating>> getRatingsByStation(@PathVariable Long stationId) {
+        return ResponseEntity.ok(ratingService.getRatingsByStation(stationId));
+    }
+
+    @GetMapping("/rating/{stationId}/average")
+    public ResponseEntity<Double> getAverageRating(@PathVariable Long stationId) {
+        Double average = ratingService.getAverageRating(stationId);
+        return ResponseEntity.ok(average);
+    }
+
     @GetMapping("/{stationId}/models/search")
     public ResponseEntity<List<ModelWithAvailabilityResponse>> searchAvailableModels(
             @PathVariable Long stationId,
@@ -101,33 +134,5 @@ public class StationController {
         List<VehicleAvailabilityResponse> vehicles = vehicleService.getAvailableVehiclesByModel(
                 modelId, stationId, startTime, endTime);
         return ResponseEntity.ok(vehicles);
-    }
-
-    @PostMapping("/rating")
-    public ResponseEntity<?> addRating(@RequestHeader("Authorization") String authHeader,
-                                       @RequestBody Map<String, Object> request) {
-        User user = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-
-        if (user.getStatus() != AccountStatus.ACTIVE) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản bị khóa không thể đánh giá.");
-        }
-
-        Long stationId = ((Number) request.get("stationId")).longValue();
-        int stars = (int) request.get("stars");
-        String comment = (String) request.get("comment");
-
-        Rating saved = ratingService.saveRating(stationId, stars, comment, user);
-        return ResponseEntity.ok(saved);
-    }
-
-    @GetMapping("/rating/{stationId}")
-    public ResponseEntity<List<Rating>> getRatingsByStation(@PathVariable Long stationId) {
-        return ResponseEntity.ok(ratingService.getRatingsByStation(stationId));
-    }
-
-    @GetMapping("/rating/{stationId}/average")
-    public ResponseEntity<Double> getAverageRating(@PathVariable Long stationId) {
-        Double average = ratingService.getAverageRating(stationId);
-        return ResponseEntity.ok(average);
     }
 }

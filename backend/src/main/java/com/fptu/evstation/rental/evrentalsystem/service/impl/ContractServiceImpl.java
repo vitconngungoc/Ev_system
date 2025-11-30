@@ -1,9 +1,7 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
 import com.fptu.evstation.rental.evrentalsystem.dto.ContractSummaryResponse;
-import com.fptu.evstation.rental.evrentalsystem.entity.Booking;
-import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
-import com.fptu.evstation.rental.evrentalsystem.entity.User;
+import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.repository.ContractRepository;
 import com.fptu.evstation.rental.evrentalsystem.repository.TransactionRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.ContractService;

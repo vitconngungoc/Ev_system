@@ -42,16 +42,16 @@ public class Booking {
     boolean reservationDepositPaid = false; // đã trả tiền cọc 500k hay chưa ?
 
     @Column(nullable = false, columnDefinition = "bit default 0")
-    private boolean rentalDepositPaid = false;  // đã thanh toán 2% giá trị xe (phí cọc) ch
+    private boolean rentalDepositPaid = false;  // đã thanh toán cọc thuê xe
 
     @Column
-    private Double refund;                  // số tiền trả cho khách = 2% giá trị xe + 500k tiền cọc giữ xe
+    private Double refund;                  // số tiền trả cho khách = cọc thuê xe + 500k tiền cọc giữ xe
 
     @Column(columnDefinition = "nvarchar(500)")
     private String refundNote;
 
     @Column
-    private Double rentalDeposit;           // cọc 2%
+    private Double rentalDeposit;           // tiền cọc thuê xe
 
     @Column
     private Double finalFee;                // tổng phí cuối cùng

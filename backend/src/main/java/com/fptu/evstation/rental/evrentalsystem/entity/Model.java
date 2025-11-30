@@ -34,12 +34,8 @@ public class Model {
     @Column(columnDefinition = "nvarchar(500)")
     private String features;
 
-
     @Column(nullable = false)
     private Double pricePerHour;
-
-    @Column(nullable = false)
-    private Double initialValue;
 
     @Column(columnDefinition = "nvarchar(255)")
     private String description;

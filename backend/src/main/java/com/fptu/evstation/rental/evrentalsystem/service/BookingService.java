@@ -11,6 +11,7 @@ import java.util.Map;
 
 public interface BookingService {
     Map<String, Object> createBooking(User renter, BookingRequest req);
+    Map<String, Object> recreatePaymentLink(User renter, Long bookingId);
     Booking getBookingById(Long bookingId);
     BookingDetailResponse getBookingDetailsById(Long bookingId);
     List<BookingSummaryResponse> getMyBookings(User renter);
@@ -18,10 +19,10 @@ public interface BookingService {
     Map<String, Object> initiateCheckIn(Long bookingId, User staff);
     Contract processCheckIn(Long bookingId, CheckInRequest req, User staff);
     Map<String, Object> getPeakHourStatistics(Long stationId, LocalDate fromDate, LocalDate toDate);
-    List<BookingSummaryResponse> getBookingsWithFilter(UserBookingFilterRequest filter);
     String cancelBookingByRenter(User renter, Long bookingId, CancelBookingRequest req);
     List<BookingSummaryResponse> getPendingRefundsByStation(User staff);
     void confirmRefund(User staff, Long bookingId);
     void cancelBookingByStaff(Long bookingId, User staff);
+    List<BookingSummaryResponse> getBookingsWithFilter(UserBookingFilterRequest filter);
 }
 

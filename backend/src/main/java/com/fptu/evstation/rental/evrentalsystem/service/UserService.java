@@ -8,15 +8,14 @@ import java.util.Map;
 
 public interface UserService {
     User register(RegisterRequest req);
-    User updateUserProfile(User user, UpdateProfileRequest req);
-    String uploadVerificationDocuments(User user, UploadVerificationRequest req);
-    Map<String, Object> getVerificationStatus(User user);
-    List<User> getPendingVerifications();
-    String processVerification(Long userId, VerifyRequest req);
-    User saveUser(User user);
-    List<UserResponse> getAllUsers();
-    User getUserById(Long id);
     User updateUserRole(Long userId, Long newRoleId);
     User updateUserStation(Long userId, Long newStationId);
-    User unlockUserAccount(Long userId);
+    User updateUserProfile(User user, UpdateProfileRequest req);
+    String uploadVerificationDocuments(User user, UploadVerificationRequest req);
+    List<User> getPendingVerifications();
+    String processVerification(Long userId, VerifyRequest req);
+    Map<String, Object> getVerificationStatus(User user);
+    List<UserResponse> getAllUsers();
+    User getUserById(Long id);
+    User saveUser(User user);
 }

@@ -16,5 +16,4 @@ public interface ModelService {
     List<ModelResponse> getAllModels(String keyword);
     List<ModelResponse> getModelsByStation(Long stationId, String keyword, VehicleType vehicleType);
     List<ModelWithAvailabilityResponse> getAvailableModelsByStation(ModelSearchRequest searchRequest);
-
 }

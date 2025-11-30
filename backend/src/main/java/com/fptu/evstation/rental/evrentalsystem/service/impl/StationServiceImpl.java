@@ -23,7 +23,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class StationServiceImpl implements StationService {
     private final StationRepository stationRepository;
-    private final VehicleRepository vehicleRepository; // 
+    private final VehicleRepository vehicleRepository;
 
     @Override
     @Transactional
@@ -40,6 +40,7 @@ public class StationServiceImpl implements StationService {
                 .build();
         return stationRepository.save(station);
     }
+
     @Override
     public List<Station> getAllStations() {
         return stationRepository.findByStatus(StationStatus.ACTIVE);
@@ -89,7 +90,7 @@ public class StationServiceImpl implements StationService {
         return stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy trạm với ID: " + stationId));
     }
-  
+
     @Override
     @Transactional
     public Map<String, Object> getVehicleStatsByStation(Long stationId) {
@@ -124,6 +125,11 @@ public class StationServiceImpl implements StationService {
 
         return response;
     }
+    @Override
+    @Transactional
+    public List<Map<String, Object>> getAllStationReports() {
+        List<Object[]> results = vehicleRepository.getVehicleStatsGroupedByStation();
+
     @Override
     @Transactional
     public List<Map<String, Object>> getAllStationReports() {

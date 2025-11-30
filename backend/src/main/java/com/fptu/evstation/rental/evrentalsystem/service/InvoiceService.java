@@ -8,5 +8,6 @@ import java.util.List;
 
 public interface InvoiceService {
     String generateAndSendInvoice(BillResponse billDetails);
+    String generateInvoicePdfOnly(BillResponse billDetails);
     List<InvoiceSummaryResponse> getAllInvoicesByStation(User staff);
 }

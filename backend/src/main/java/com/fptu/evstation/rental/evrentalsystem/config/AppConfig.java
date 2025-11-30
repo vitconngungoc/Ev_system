@@ -2,7 +2,6 @@ package com.fptu.evstation.rental.evrentalsystem.config;
 
 import com.fptu.evstation.rental.evrentalsystem.filter.AuthTokenFilter;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,11 +25,15 @@ import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
-@RequiredArgsConstructor
 @EnableScheduling
 public class AppConfig implements WebMvcConfigurer {
+
     @Autowired
     private final AuthTokenFilter authTokenFilter;
+
+    public AppConfig(AuthTokenFilter authTokenFilter) {
+        this.authTokenFilter = authTokenFilter;
+    }
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
@@ -46,7 +49,6 @@ public class AppConfig implements WebMvcConfigurer {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .anonymous(anonymous -> anonymous.disable())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
@@ -68,8 +70,16 @@ public class AppConfig implements WebMvcConfigurer {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/profile/**").authenticated()
+                        .requestMatchers("/api/stations/**").permitAll()
+                        .requestMatchers("/api/vehicles/**").permitAll()
+                        .requestMatchers("/api/payments/webhook").permitAll()
+                        .requestMatchers("/api/renter/**").hasAuthority("EV_RENTER")
+                        .requestMatchers("/api/staff/**").hasAuthority("STATION_STAFF")
                         .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
+                        .requestMatchers("/api/bookings/**").authenticated()
+                        .requestMatchers("/role").authenticated()
                         .requestMatchers("/uploads/**").permitAll()
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 );
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
@@ -79,8 +89,7 @@ public class AppConfig implements WebMvcConfigurer {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:5500", "http://127.0.0.1:5500",
-                                                        "http://localhost:8080","http://localhost:3000"));
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:5500","http://localhost:5173","http://127.0.0.1:5500","http://localhost:8080","http://localhost:3000", "http://localhost:63342","https://ev-system-rho.vercel.app"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);
