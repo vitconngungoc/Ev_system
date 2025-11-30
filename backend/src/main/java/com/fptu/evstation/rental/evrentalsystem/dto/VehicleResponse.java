@@ -33,4 +33,8 @@ public class VehicleResponse {
     private String description;
     private List<String> imagePaths;
     private LocalDateTime createdAt;
+    private Double depositAmount;
+    private String vinNumber;
+    private String engineNumber;
+    private Integer manufacturingYear;
 }
