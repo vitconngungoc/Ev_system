@@ -2,6 +2,7 @@ package com.fptu.evstation.rental.evrentalsystem.controller;
 
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
+import com.fptu.evstation.rental.evrentalsystem.entity.Vehicle;
 import com.fptu.evstation.rental.evrentalsystem.repository.UserRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.*;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import jakarta.validation.Valid;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -20,13 +22,13 @@ import java.util.Map;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 public class AdminStationController {
-
     private final StationService stationService;
     private final ModelService modelService;
     private final VehicleService vehicleService;
-    private final ReportService reportService;
     private final UserService userService;
     private final UserRepository userRepository;
+    private final ReportService reportService;
+    private final BookingService bookingService;
 
     // --- 1. Quản lý Trạm (Stations) ---
     @PostMapping("/stations")
@@ -60,7 +62,69 @@ public class AdminStationController {
         }
     }
 
-    // --- 2. Quản lý Mẫu xe (Models) ---
+    // --- 2. Quản lý Xe (Vehicles) ---
+    @PostMapping("/vehicles")
+    public ResponseEntity<VehicleResponse> createVehicle(@RequestBody @Valid CreateVehicleRequest request) {
+        return ResponseEntity.ok(vehicleService.createVehicle(request));
+    }
+
+    @GetMapping("/vehicles")
+    public ResponseEntity<List<VehicleResponse>> getAllVehicles(
+            @RequestParam(required = false) Long modelId,
+            @RequestParam(required = false) Long stationId,
+            @RequestParam(required = false) VehicleType vehicleType,
+            @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
+            @RequestParam(required = false, defaultValue = "desc") String order) {
+        return ResponseEntity.ok(vehicleService.getAllVehicles(modelId, stationId, vehicleType, sortBy, order));
+    }
+
+    @GetMapping("/vehicles/{id}")
+    public ResponseEntity<?> getVehicleDetailsById(@PathVariable Long id) {
+        try {
+            VehicleResponse response = vehicleService.getVehicleDetailsById(id);
+            return ResponseEntity.ok(response);
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", e.getReason()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
+        }
+    }
+    @PutMapping("/vehicles/{id}")
+    public ResponseEntity<?> updateVehicle(@PathVariable Long id, @RequestBody @Valid UpdateVehicleDetailsRequest  request) {
+        try {
+            Vehicle updated = vehicleService.updateVehicle(id, request);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Xe đã được cập nhật thành công!",
+                    "vehicleId", updated.getVehicleId()
+            ));
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", e.getReason()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/vehicles/{id}")
+    public ResponseEntity<?> deleteVehicle(@PathVariable Long id) {
+        try {
+            vehicleService.deleteVehicle(id);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Xe với ID " + id + " đã được xóa thành công!"
+            ));
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", e.getReason()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
+        }
+    }
+
+    // --- 3. Quản lý Mẫu xe (Models) ---
     @GetMapping("/models")
     public ResponseEntity<List<ModelResponse>> getAllModels(
             @RequestParam(required = false) String keyword) {
@@ -117,82 +181,6 @@ public class AdminStationController {
         }
     }
 
-    // --- 3. Quản lý Xe (Vehicles) ---
-    @PostMapping("/vehicles")
-    public ResponseEntity<VehicleResponse> createVehicle(@RequestBody CreateVehicleRequest request) {
-        return ResponseEntity.ok(vehicleService.createVehicle(request));
-    }
-
-    @GetMapping("/vehicles")
-    public ResponseEntity<List<VehicleResponse>> getAllVehicles(
-            @RequestParam(required = false) Long modelId,
-            @RequestParam(required = false) Long stationId,
-            @RequestParam(required = false) VehicleType vehicleType,
-            @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
-            @RequestParam(required = false, defaultValue = "desc") String order) {
-        return ResponseEntity.ok(vehicleService.getAllVehicles(modelId, stationId, vehicleType, sortBy, order));
-    }
-
-    @GetMapping("/vehicles/{id}")
-    public ResponseEntity<?> getVehicleDetailsById(@PathVariable Long id) {
-        try {
-            VehicleResponse response = vehicleService.getVehicleDetailsById(id);
-            return ResponseEntity.ok(response);
-        } catch (ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode())
-                    .body(Map.of("error", e.getReason()));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
-        }
-    }
-    @PutMapping("/vehicles/{id}")
-    public ResponseEntity<?> updateVehicle(@PathVariable Long id, @RequestBody UpdateVehicleDetailsRequest  request) {
-        try {
-            Vehicle updated = vehicleService.updateVehicle(id, request);
-            return ResponseEntity.ok(Map.of(
-                    "message", "Xe đã được cập nhật thành công!",
-                    "vehicleId", updated.getVehicleId()
-            ));
-        } catch (ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode())
-                    .body(Map.of("error", e.getReason()));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
-        }
-    }
-
-    @DeleteMapping("/vehicles/{id}")
-    public ResponseEntity<?> deleteVehicle(@PathVariable Long id) {
-        try {
-            vehicleService.deleteVehicle(id);
-            return ResponseEntity.ok(Map.of(
-                    "message", "Xe với ID " + id + " đã được xóa thành công!"
-            ));
-        } catch (ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode())
-                    .body(Map.of("error", e.getReason()));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Lỗi hệ thống: " + e.getMessage()));
-        }
-    }
-    @GetMapping("/revenue")
-    public ResponseEntity<ReportResponse> getRevenueReport(
-            @RequestParam(required = false) Long stationId,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
-    ) {
-        ReportResponse report;
-        if (stationId != null) {
-            report = reportService.getRevenueByStation(stationId, from, to);
-        }
-        else {
-            report = reportService.getTotalRevenue(from, to);
-        }
-        return ResponseEntity.ok(report);
-    }
     // --- 4. Quản lý Người dùng (Users) ---
     @GetMapping("/users")
     public ResponseEntity<List<UserResponse>> getAllUsers() {
@@ -244,6 +232,29 @@ public class AdminStationController {
         User updatedUser = userService.updateUserStation(userId, stationId);
         return ResponseEntity.ok(updatedUser);
     }
+
+    @GetMapping("/revenue")
+    public ResponseEntity<ReportResponse> getRevenueReport(
+            @RequestParam(required = false) Long stationId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        ReportResponse report;
+        if (stationId != null) {
+            report = reportService.getRevenueByStation(stationId, from, to);
+        }
+        else {
+            report = reportService.getTotalRevenue(from, to);
+        }
+        return ResponseEntity.ok(report);
+    }
+
+    @GetMapping("/stations/report")
+    public ResponseEntity<?> getAllStationReports() {
+        List<Map<String, Object>> reports = stationService.getAllStationReports();
+        return ResponseEntity.ok(reports);
+    }
+
     @GetMapping("/vehicle-history")
     public ResponseEntity<List<VehicleHistoryResponse>> getAllVehicleHistory(
             @RequestParam(required = false) Long stationId,
@@ -274,5 +285,18 @@ public class AdminStationController {
     ) {
         List<VehicleHistoryResponse> historyList = vehicleService.getHistoryByRenter(renterId);
         return ResponseEntity.ok(historyList);
+    }
+    @GetMapping("/statistics/peak-hour")
+    public ResponseEntity<Map<String, Object>> getPeakHourStats(
+            @RequestParam(required = false) Long stationId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+        return ResponseEntity.ok(bookingService.getPeakHourStatistics(stationId, fromDate, toDate));
+    }
+    @GetMapping("/bookings/search")
+    public ResponseEntity<List<BookingSummaryResponse>> searchBookings(UserBookingFilterRequest filter) {
+        List<BookingSummaryResponse> results = bookingService.getBookingsWithFilter(filter);
+        return ResponseEntity.ok(results);
     }
 }
