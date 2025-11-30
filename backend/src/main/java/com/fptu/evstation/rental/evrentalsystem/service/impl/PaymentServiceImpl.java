@@ -1,9 +1,7 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fptu.evstation.rental.evrentalsystem.dto.BillResponse;
-import com.fptu.evstation.rental.evrentalsystem.dto.PaymentConfirmationRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.PenaltyCalculationRequest;
+import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
 import com.fptu.evstation.rental.evrentalsystem.repository.*;
 import com.fptu.evstation.rental.evrentalsystem.service.InvoiceService;
@@ -30,20 +28,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentServiceImpl implements PaymentService {
+
     private final BookingRepository bookingRepository;
     private final PenaltyFeeRepository penaltyFeeRepository;
     private final TransactionDetailRepository transactionDetailRepository;
     private final TransactionRepository transactionRepository;
+    private final VehicleHistoryRepository historyRepository;
     private final VehicleService vehicleService;
     private final QrCodeService qrCodeService;
     private final InvoiceService invoiceService;
     private final ModelRepository modelRepository;
-    private final VehicleHistoryRepository historyRepository;
 
     private final Path handoverPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "handover_photos");
     private final Path adjustmentPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "adjustments");
@@ -204,6 +202,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .bookingId(bookingId)
                 .userName(booking.getUser().getFullName())
                 .dateTime(actualEndDate)
+                .actualRentalHours(actualHours)
                 .baseRentalFee(finalBaseFee)
                 .totalPenaltyFee(totalPositivePenalty)
                 .downpayPaid(totalDownpayPaid)
@@ -214,7 +213,108 @@ public class PaymentServiceImpl implements PaymentService {
                 .qrCodeUrl(qrCodeBase64)
                 .build();
 
+        try {
+            String invoicePath = invoiceService.generateInvoicePdfOnly(billResponse);
+            if (invoicePath != null) {
+                billResponse.setInvoicePdfPath(invoicePath);
+                log.info("Đã tạo file hóa đơn PDF cho Booking ID: {} tại: {}", bookingId, invoicePath);
+            } else {
+                log.warn("Không thể tạo file hóa đơn PDF cho Booking ID: {}", bookingId);
+            }
+        } catch (Exception e) {
+            log.error("Lỗi khi tạo file hóa đơn PDF trong calculateFinalBill cho Booking ID: {}", bookingId, e);
+        }
+
         return billResponse;
+    }
+
+    @Override
+    @Transactional
+    public void confirmDeposit(User staff, Long bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking."));
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn chưa được gán cho trạm nào.");
+        }
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn này đã được xác nhận cọc trước đó (có thể qua PayOS).");
+        }
+        if (booking.getStatus() != BookingStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chỉ có thể xác nhận cọc cho đơn ở trạng thái PENDING.");
+        }
+
+        Booking confirmedBooking = confirmDepositLogic(bookingId);
+        createTransaction(
+                confirmedBooking,
+                500_000.0,
+                PaymentMethod.BANK_TRANSFER,
+                staff,
+                "Nhân viên xác nhận cọc giữ chỗ 500k"
+        );
+    }
+
+    @Override
+    @Transactional
+    public void autoConfirmDeposit(Long bookingId) {
+        Booking before = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking."));
+        BookingStatus beforeStatus = before.getStatus();
+        boolean beforePaid = before.isReservationDepositPaid();
+
+        Booking after = confirmDepositLogic(bookingId);
+
+        if (beforeStatus == BookingStatus.PENDING
+                && after.getStatus() == BookingStatus.CONFIRMED
+                && !beforePaid
+                && after.isReservationDepositPaid()) {
+            createTransaction(
+                    after,
+                    500_000.0,
+                    PaymentMethod.GATEWAY,
+                    null,
+                    "Hệ thống tự động xác nhận cọc 500k (payOS)"
+            );
+        }
+    }
+
+    @Override
+    @Transactional
+    public void autoConfirmRentalDeposit(Long bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Webhook cọc thuê xe: Không tìm thấy Booking."));
+
+        if (booking.getStatus() != BookingStatus.CONFIRMED) {
+            log.warn("Webhook cọc thuê xe nhận được cho booking {} nhưng trạng thái không phải CONFIRMED (status={}). Bỏ qua.", bookingId, booking.getStatus());
+            return;
+        }
+
+        if (booking.isRentalDepositPaid()) {
+            log.warn("Webhook cọc thuê xe nhận được cho booking {} nhưng cọc thuê xe đã được thanh toán trước đó. Bỏ qua.", bookingId);
+            return;
+        }
+
+        if (booking.getRentalDeposit() == null || booking.getRentalDeposit() <= 0) {
+            log.error("Webhook cọc thuê xe cho booking {} thất bại: không tìm thấy số tiền cọc (RentalDeposit).", bookingId);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi logic: Không tìm thấy số tiền cọc thuê xe");
+        }
+
+        booking.setRentalDepositPaid(true);
+        bookingRepository.save(booking);
+
+        createTransaction(
+                booking,
+                booking.getRentalDeposit(),
+                PaymentMethod.GATEWAY,
+                null,
+                "Hệ thống tự động xác nhận cọc thuê xe (payOS)"
+        );
+
+        log.info("Hệ thống tự động xác nhận cọc thuê xe (PayOS) thành công cho Booking ID: {}", bookingId);
     }
 
     @Override
@@ -361,47 +461,56 @@ public class PaymentServiceImpl implements PaymentService {
         log.info("Nhân viên {} đã xác nhận thanh toán và hoàn tất Booking ID: {}", staff.getFullName(), bookingId);
 
         try {
-            List<TransactionDetail> transactionDetails = transactionDetailRepository.findByBooking(booking);
-            double totalPenaltyFee = transactionDetails.stream()
-                    .filter(td -> td.getAppliedAmount() > 0)
-                    .mapToDouble(TransactionDetail::getAppliedAmount)
-                    .sum();
+            if (booking.getInvoicePdfPath() != null && !booking.getInvoicePdfPath().isBlank()) {
+                List<TransactionDetail> transactionDetails = transactionDetailRepository.findByBooking(booking);
+                double totalPenaltyFee = transactionDetails.stream()
+                        .filter(td -> td.getAppliedAmount() > 0)
+                        .mapToDouble(TransactionDetail::getAppliedAmount)
+                        .sum();
 
-            double baseRentalFee = totalDue - totalPenaltyFee;
+                double baseRentalFee = totalDue - totalPenaltyFee;
 
-            List<BillResponse.FeeItem> feeItems = new ArrayList<>();
-            for (TransactionDetail td : transactionDetails) {
-                if (td.getAppliedAmount() != 0) {
-                    String feeName = td.getStaffNote() != null ? td.getStaffNote() :
-                            (td.getPenaltyFee() != null ? td.getPenaltyFee().getFeeName() : "Phí không xác định");
-                    String staffNote = td.getAdjustmentNote() != null ? td.getAdjustmentNote() : "";
+                List<BillResponse.FeeItem> feeItems = new ArrayList<>();
+                for (TransactionDetail td : transactionDetails) {
+                    if (td.getAppliedAmount() != 0) {
+                        String feeName = td.getStaffNote() != null ? td.getStaffNote() :
+                                (td.getPenaltyFee() != null ? td.getPenaltyFee().getFeeName() : "Phí không xác định");
+                        String staffNote = td.getAdjustmentNote() != null ? td.getAdjustmentNote() : "";
 
-                    feeItems.add(BillResponse.FeeItem.builder()
-                            .feeName(feeName)
-                            .amount(td.getAppliedAmount())
-                            .staffNote(staffNote)
-                            .adjustmentNote(td.getAdjustmentNote())
-                            .build());
+                        feeItems.add(BillResponse.FeeItem.builder()
+                                .feeName(feeName)
+                                .amount(td.getAppliedAmount())
+                                .staffNote(staffNote)
+                                .adjustmentNote(td.getAdjustmentNote())
+                                .build());
+                    }
                 }
+
+                Duration actualDuration = Duration.between(booking.getStartDate(), LocalDateTime.now());
+                double actualHours = actualDuration.toMinutes() / 60.0;
+
+                BillResponse billResponse = BillResponse.builder()
+                        .bookingId(bookingId)
+                        .userName(booking.getUser().getFullName())
+                        .dateTime(LocalDateTime.now())
+                        .actualRentalHours(actualHours)
+                        .baseRentalFee(baseRentalFee)
+                        .totalPenaltyFee(totalPenaltyFee)
+                        .downpayPaid(totalDepositPaid)
+                        .totalDiscount(Math.abs(totalDiscount))
+                        .paymentDue(Math.max(0, netSettlement))
+                        .refundToCustomer(Math.max(0, -netSettlement))
+                        .feeItems(feeItems)
+                        .invoicePdfPath(booking.getInvoicePdfPath())
+                        .build();
+
+                invoiceService.generateAndSendInvoice(billResponse);
+                log.info("Hóa đơn đã được gửi qua email thành công cho Booking ID: {}", bookingId);
+            } else {
+                log.warn("Không tìm thấy file hóa đơn PDF cho Booking ID: {}. Không gửi email.", bookingId);
             }
-
-            BillResponse billResponse = BillResponse.builder()
-                    .bookingId(bookingId)
-                    .userName(booking.getUser().getFullName())
-                    .dateTime(LocalDateTime.now())
-                    .baseRentalFee(baseRentalFee)
-                    .totalPenaltyFee(totalPenaltyFee)
-                    .downpayPaid(totalDepositPaid)
-                    .totalDiscount(Math.abs(totalDiscount))
-                    .paymentDue(Math.max(0, netSettlement))
-                    .refundToCustomer(Math.max(0, -netSettlement))
-                    .feeItems(feeItems)
-                    .build();
-
-            String invoicePath = invoiceService.generateAndSendInvoice(billResponse);
-            log.info("Hóa đơn đã được tạo và gửi thành công cho Booking ID: {} tại đường dẫn: {}", bookingId, invoicePath);
         } catch (Exception e) {
-            log.error("Lỗi khi tạo và gửi hóa đơn cho Booking ID {}: {}", bookingId, e.getMessage());
+            log.error("Lỗi khi gửi hóa đơn qua email cho Booking ID {}: {}", bookingId, e.getMessage());
         }
 
         NumberFormat nf = NumberFormat.getNumberInstance(new Locale("vi", "VN"));
@@ -422,93 +531,37 @@ public class PaymentServiceImpl implements PaymentService {
         return Map.of("message", message);
     }
 
-    @Override
-    @Transactional
-    public void confirmDeposit(User staff, Long bookingId) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking."));
-
-        if (staff.getStation() == null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn chưa được gán cho trạm nào.");
-        }
-        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
-        }
-
-        if (booking.getStatus() == BookingStatus.CONFIRMED) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn này đã được xác nhận cọc trước đó (có thể qua PayOS).");
-        }
-        if (booking.getStatus() != BookingStatus.PENDING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chỉ có thể xác nhận cọc cho đơn ở trạng thái PENDING.");
-        }
-
-        Booking confirmedBooking = confirmDepositLogic(bookingId);
-        createTransaction(
-                confirmedBooking,
-                500_000.0,
-                PaymentMethod.BANK_TRANSFER,
-                staff,
-                "Nhân viên xác nhận cọc giữ chỗ 500k"
-        );
-    }
-
-    @Override
-    @Transactional
-    public void autoConfirmDeposit(Long bookingId) {
-        Booking before = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy Booking."));
-        BookingStatus beforeStatus = before.getStatus();
-        boolean beforePaid = before.isReservationDepositPaid();
-
-        Booking after = confirmDepositLogic(bookingId);
-
-        if (beforeStatus == BookingStatus.PENDING
-                && after.getStatus() == BookingStatus.CONFIRMED
-                && !beforePaid
-                && after.isReservationDepositPaid()) {
-            createTransaction(
-                    after,
-                    500_000.0,
-                    PaymentMethod.GATEWAY,
-                    null,
-                    "Hệ thống tự động xác nhận cọc 500k (payOS)"
-            );
-        }
-    }
-
-    @Override
-    @Transactional
-    public void autoConfirmRentalDeposit(Long bookingId) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Webhook 2%: Không tìm thấy Booking."));
-
-        if (booking.getStatus() != BookingStatus.CONFIRMED) {
-            log.warn("Webhook 2% nhận được cho booking {} nhưng trạng thái không phải CONFIRMED (status={}). Bỏ qua.", bookingId, booking.getStatus());
+    private void completeBooking(Booking booking) {
+        if (booking.getStatus() == BookingStatus.COMPLETED) {
             return;
         }
-
-        if (booking.isRentalDepositPaid()) {
-            log.warn("Webhook 2% nhận được cho booking {} nhưng cọc 2% đã được thanh toán trước đó. Bỏ qua.", bookingId);
-            return;
-        }
-
-        if (booking.getRentalDeposit() == null || booking.getRentalDeposit() <= 0) {
-            log.error("Webhook 2% cho booking {} thất bại: không tìm thấy số tiền cọc 2% (RentalDeposit).", bookingId);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi logic: Không tìm thấy số tiền cọc 2%");
-        }
-
-        booking.setRentalDepositPaid(true);
+        booking.setStatus(BookingStatus.COMPLETED);
         bookingRepository.save(booking);
+    }
 
-        createTransaction(
-                booking,
-                booking.getRentalDeposit(),
-                PaymentMethod.GATEWAY,
-                null,
-                "Hệ thống tự động xác nhận cọc thuê xe 2% (payOS)"
-        );
+    @Transactional
+    protected String saveAdjustmentPhoto(MultipartFile file, Long bookingId, int index) {
+        if (file == null || file.isEmpty()) return null;
+        try {
+            Path bookingDir = adjustmentPhotoDir.resolve("booking_" + bookingId);
+            Files.createDirectories(bookingDir);
 
-        log.info("Hệ thống tự động xác nhận cọc 2% (PayOS) thành công cho Booking ID: {}", bookingId);
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
+            }
+
+            String fileName = String.format("adjustment-%d%s", index, extension);
+            Path filePath = bookingDir.resolve(fileName);
+            file.transferTo(filePath);
+
+            return "/uploads/adjustments/booking_" + bookingId + "/" + fileName;
+
+        } catch (IOException e) {
+            log.error("Lỗi khi lưu ảnh adjustment", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu file ảnh.");
+        }
     }
 
     private Booking confirmDepositLogic(Long bookingId) {
@@ -553,39 +606,6 @@ public class PaymentServiceImpl implements PaymentService {
                 .staffNote(note)
                 .build();
         transactionRepository.save(transaction);
-    }
-
-    @Transactional
-    protected String saveAdjustmentPhoto(MultipartFile file, Long bookingId, int index) {
-        if (file == null || file.isEmpty()) return null;
-        try {
-            Path bookingDir = adjustmentPhotoDir.resolve("booking_" + bookingId);
-            Files.createDirectories(bookingDir);
-
-            String originalFilename = file.getOriginalFilename();
-            String extension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf('.'));
-            }
-
-            String fileName = String.format("adjustment-%d%s", index, extension);
-            Path filePath = bookingDir.resolve(fileName);
-            file.transferTo(filePath);
-
-            return "/uploads/adjustments/booking_" + bookingId + "/" + fileName;
-
-        } catch (IOException e) {
-            log.error("Lỗi khi lưu ảnh adjustment", e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu file ảnh.");
-        }
-    }
-    @Transactional
-    protected void completeBooking(Booking booking) {
-        if (booking.getStatus() == BookingStatus.COMPLETED) {
-            return;
-        }
-        booking.setStatus(BookingStatus.COMPLETED);
-        bookingRepository.save(booking);
     }
 
     @Transactional

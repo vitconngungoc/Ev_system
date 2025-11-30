@@ -1,5 +1,6 @@
 package com.fptu.evstation.rental.evrentalsystem.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
 import com.fptu.evstation.rental.evrentalsystem.entity.*;
@@ -24,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
@@ -36,18 +38,77 @@ import java.util.stream.Stream;
 public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
-    private final UserRepository userRepository;
     private final VehicleRepository vehicleRepository;
+    private final UserRepository userRepository;
     private final PaymentService paymentService;
     private final VehicleService vehicleService;
     private final PayOS payOS;
+    private final StationService stationService;
     private final ObjectMapper objectMapper;
+    private final ContractRepository contractRepository;
     private final ContractService contractService;
+    private final VehicleHistoryRepository historyRepository;
     private final Random random = new Random();
 
     private final Path handoverPhotoDir = Paths.get(System.getProperty("user.dir"), "uploads", "handover_photos");
 
     private static final long MIN_RENTAL_HOURS = 1;
+
+    @Override
+    @Transactional
+    public Map<String, Object> recreatePaymentLink(User renter, Long bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy booking ID: " + bookingId));
+
+        if (!booking.getUser().getUserId().equals(renter.getUserId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập booking này.");
+        }
+        if (booking.getStatus() != BookingStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Booking này đã được thanh toán hoặc không còn trong trạng thái chờ thanh toán. Trạng thái hiện tại: " + booking.getStatus());
+        }
+
+        LocalDateTime createdAt = booking.getCreatedAt();
+        if (createdAt != null && Duration.between(createdAt, LocalDateTime.now()).toMinutes() > 30) {
+            booking.setStatus(BookingStatus.CANCELLED);
+            bookingRepository.save(booking);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Booking này đã quá hạn thanh toán (30 phút) và đã bị hủy. Vui lòng tạo booking mới.");
+        }
+
+        try {
+            final String description = "Thanh toán 500K giữ xe" + bookingId;
+            final String returnUrl = "http://localhost:3000/payment-success";
+            final String cancelUrl = "http://localhost:3000/payment-failed";
+            final long amount = 500000L;
+
+            String randomSuffix = String.format("%04d", random.nextInt(10000));
+            final long orderCode = Long.parseLong("1" + bookingId + randomSuffix);
+
+            CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
+                    .orderCode(orderCode)
+                    .amount(amount)
+                    .description(description)
+                    .returnUrl(returnUrl)
+                    .cancelUrl(cancelUrl)
+                    .build();
+            CreatePaymentLinkResponse paymentResult = payOS.paymentRequests().create(paymentData);
+
+            log.info("Đã tạo lại link thanh toán cho Booking ID: {}, User: {}", bookingId, renter.getEmail());
+
+            return Map.of(
+                    "message", "Đã tạo lại link thanh toán. Vui lòng hoàn tất thanh toán cọc 500.000 VNĐ.",
+                    "bookingId", booking.getBookingId(),
+                    "paymentUrl", paymentResult.getCheckoutUrl()
+            );
+        } catch (PayOSException e) {
+            log.error("Lỗi khi tạo lại link thanh toán payOS cho Booking ID {}: {}", bookingId, e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo link thanh toán: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("Lỗi hệ thống khi tạo lại link thanh toán cho Booking ID {}: {}", bookingId, e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống không xác định.");
+        }
+    }
 
     @Override
     @Transactional
@@ -129,6 +190,7 @@ public class BookingServiceImpl implements BookingService {
                 .user(renter)
                 .station(station)
                 .vehicle(vehicle)
+                .rentalDeposit(vehicle.getDepositAmount())
                 .startDate(req.getStartTime())
                 .endDate(req.getEndTime())
                 .finalFee(totalRentalCost)
@@ -177,7 +239,68 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public BookingDetailResponse getBookingDetailsById(Long bookingId) {
-        throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Chức năng đang được phát triển");
+        Booking booking = getBookingById(bookingId);
+
+        User renter = booking.getUser();
+        Station station = booking.getStation();
+
+        Vehicle vehicle = booking.getVehicle();
+        Model model = (vehicle != null) ? vehicle.getModel() : null;
+
+        String licensePlate = (vehicle != null) ? vehicle.getLicensePlate() : "Chưa nhận xe";
+        String modelName = (model != null) ? model.getModelName() : "N/A";
+        Double pricePerHour = (model != null) ? model.getPricePerHour() : null;
+
+        Optional<Contract> contractOpt = contractRepository.findByBooking(booking);
+        String contractPath = contractOpt
+                .map(Contract::getContractPdfPath)
+                .orElse(null);
+
+        List<String> checkInPhotos = List.of();
+        if (booking.getCheckInPhotoPaths() != null) {
+            try {
+                checkInPhotos = objectMapper.readValue(booking.getCheckInPhotoPaths(), new TypeReference<>() {});
+            } catch (Exception e) {
+                log.warn("Lỗi đọc JSON ảnh check-in: {}", e.getMessage());
+            }
+        }
+
+        List<String> checkOutPhotos = List.of();
+        if (booking.getStatus() == BookingStatus.COMPLETED && vehicle != null) {
+            VehicleHistory checkOutHistory = historyRepository.findFirstByVehicleAndRenterAndActionTypeOrderByActionTimeDesc(
+                    vehicle, renter, VehicleActionType.RETURN);
+            if (checkOutHistory != null && checkOutHistory.getPhotoPaths() != null) {
+                try {
+                    checkOutPhotos = objectMapper.readValue(checkOutHistory.getPhotoPaths(), new TypeReference<>() {});
+                } catch (Exception e) {
+                    log.warn("Lỗi đọc JSON ảnh check-out từ VehicleHistory: {}", e.getMessage());
+                }
+            }
+        }
+
+        return BookingDetailResponse.builder()
+                .bookingId(booking.getBookingId())
+                .status(booking.getStatus())
+                .createdAt(booking.getCreatedAt())
+                .startDate(booking.getStartDate())
+                .endDate(booking.getEndDate())
+                .renterName(renter.getFullName())
+                .renterPhone(renter.getPhone())
+                .renterEmail(renter.getEmail())
+                .vehicleLicensePlate(licensePlate)
+                .pricePerHour(pricePerHour)
+                .modelName(modelName)
+                .stationName(station.getName())
+                .stationAddress(station.getAddress())
+                .rentalDeposit(booking.getRentalDeposit())
+                .reservationDepositPaid(booking.isReservationDepositPaid())
+                .finalFee(booking.getFinalFee())
+                .checkInPhotoPaths(checkInPhotos)
+                .checkOutPhotoPaths(checkOutPhotos)
+                .invoicePdfPath(booking.getInvoicePdfPath())
+                .contractPdfPath(contractPath)
+                .refundInfo(booking.getRefundNote())
+                .build();
     }
 
     @Override
@@ -283,6 +406,7 @@ public class BookingServiceImpl implements BookingService {
                 .toList();
     }
 
+
     @Override
     public Map<String, Object> initiateCheckIn(Long bookingId, User staff) {
         Booking booking = getBookingById(bookingId);
@@ -299,17 +423,17 @@ public class BookingServiceImpl implements BookingService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking này không ở trạng thái sẵn sàng để check-in.");
         }
 
-        Model model = booking.getVehicle().getModel();
-        double rentalDepositAmount = model.getInitialValue() * 0.02;
+        Vehicle vehicle = booking.getVehicle();
+        double rentalDepositAmount = vehicle.getDepositAmount();
 
         booking.setRentalDeposit(rentalDepositAmount);
         bookingRepository.save(booking);
 
         try {
-            final String description = "Cọc 2% cho Booking " + booking.getBookingId();
+            final String description = "Cọc thuê B-" + booking.getBookingId();
             final String returnUrl = "http://localhost:3000/payment-success";
             final String cancelUrl = "http://localhost:3000/payment-failed";
-            final long amount = (long) 2000.0;
+            final long amount = (long) rentalDepositAmount;
 
             String randomSuffix = String.format("%04d", random.nextInt(10000));
             final long orderCode = Long.parseLong("2" + booking.getBookingId() + randomSuffix);
@@ -325,125 +449,16 @@ public class BookingServiceImpl implements BookingService {
             CreatePaymentLinkResponse paymentResult = payOS.paymentRequests().create(paymentData);
 
             Map<String, Object> response = new HashMap<>();
-            response.put("message", "Đã tạo link thanh toán cọc thuê xe 2%. Vui lòng đưa khách thanh toán.");
+            response.put("message", "Đã tạo link thanh toán cọc thuê xe. Vui lòng đưa khách thanh toán.");
             response.put("rentalDepositAmount", rentalDepositAmount);
             response.put("paymentUrl", paymentResult.getCheckoutUrl());
 
             return response;
 
         } catch (PayOSException e) {
-            log.error("Lỗi khi tạo link thanh toán cọc 2% (PayOS): {}", e.getMessage());
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo link thanh toán cọc 2%: " + e.getMessage());
+            log.error("Lỗi khi tạo link thanh toán cọc thuê xe (PayOS): {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo link thanh toán cọc thuê xe: " + e.getMessage());
         }
-    }
-
-    @Override
-    public Contract processCheckIn(Long bookingId, CheckInRequest req, User staff) {
-        if (staff.getStatus() != AccountStatus.ACTIVE) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
-        }
-
-        if (staff.getStation() == null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
-        }
-
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt xe."));
-
-        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
-        }
-
-        if (booking.getStatus() == BookingStatus.PENDING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này chưa được xác nhận thanh toán phí giữ chỗ.");
-        }else if(booking.getStatus() == BookingStatus.RENTING){
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã được thuê.");
-        }else if(booking.getStatus() == BookingStatus.COMPLETED){
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã được hoàn thành.");
-        }else if(booking.getStatus() == BookingStatus.CANCELLED){
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã bị hủy.");
-        }
-
-        Vehicle vehicle = booking.getVehicle();
-
-        if (req.getBattery() < 85) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Mức pin hiện tại chỉ có " + req.getBattery() + "%, không đủ mức pin tối thiểu 85% để giao xe cho khách thuê. " +
-                            "Vui lòng sạc xe trước khi giao cho khách.");
-        }
-
-        if (req.getMileage() < vehicle.getCurrentMileage()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Số km hiện tại bạn nhập (" + req.getMileage() + " km) không hợp lệ. " +
-                            "Số km trên hệ thống là " + vehicle.getCurrentMileage() + " km. " +
-                            "Vui lòng kiểm tra lại và nhập số km lớn hơn hoặc bằng số km hiện tại trên hệ thống.");
-        }
-
-        vehicle.setBatteryLevel(req.getBattery());
-        vehicle.setCurrentMileage(req.getMileage());
-        vehicle.setStatus(VehicleStatus.RENTED);
-        vehicleService.saveVehicle(vehicle);
-
-        if (req.getCheckInPhotos() == null || req.getCheckInPhotos().isEmpty() || req.getCheckInPhotos().get(0).isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ảnh check-in (lúc giao xe) là bắt buộc.");
-        }
-
-
-        double rentalDepositAmount = booking.getVehicle().getModel().getInitialValue() * 0.02;
-        if (!booking.isRentalDepositPaid()) {
-            log.info("Booking {} chưa trả cọc 2% qua PayOS. Xử lý thanh toán thủ công...", bookingId);
-
-            if (req.getDepositPaymentMethod() == PaymentMethod.GATEWAY) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thanh toán qua cổng PayOS chưa được xác nhận. Vui lòng đợi hoặc chọn phương thức thanh toán thủ công (Tiền mặt/Chuyển khoản).");
-            }
-
-            paymentService.createTransaction(booking, rentalDepositAmount, req.getDepositPaymentMethod(), staff, "Thu cọc thuê xe 2% (thủ công)");
-            booking.setRentalDepositPaid(true);
-
-        } else {
-            log.info("Booking {} đã trả cọc 2% qua PayOS. Bỏ qua tạo giao dịch 2%...", bookingId);
-        }
-
-        List<String> photoPaths = new ArrayList<>();
-        String photoPathsJson = null;
-        for (int i = 0; i < req.getCheckInPhotos().size(); i++) {
-            MultipartFile photo = req.getCheckInPhotos().get(i);
-            String savedPath = saveHandoverPhoto(photo, bookingId, "checkin", i + 1);
-            photoPaths.add(savedPath);
-        }
-
-        try {
-            photoPathsJson = objectMapper.writeValueAsString(photoPaths);
-            booking.setCheckInPhotoPaths(photoPathsJson);
-        } catch (Exception e) {
-            log.error("Lỗi khi chuyển đổi danh sách ảnh thành JSON", e);
-        }
-
-        booking.setRentalDeposit(rentalDepositAmount);
-        booking.setStartDate(LocalDateTime.now());
-        booking.setStatus(BookingStatus.RENTING);
-        bookingRepository.save(booking);
-
-        Contract contract = contractService.generateAndSaveContract(booking, staff);
-        try {
-            vehicleService.recordVehicleAction(
-                    booking.getVehicle().getVehicleId(),
-                    staff.getUserId(),
-                    booking.getUser().getUserId(),
-                    staff.getStation().getStationId(),
-                    VehicleActionType.DELIVERY,
-                    "Nhân viên " + staff.getFullName() + " đã giao xe cho khách " + booking.getUser().getFullName(),
-                    req.getConditionBefore(),
-                    null,
-                    req.getBattery(),
-                    req.getMileage(),
-                    photoPathsJson
-            );
-        } catch (Exception e) {
-            log.warn("Không thể ghi lịch sử giao xe cho booking ID {}: {}", bookingId, e.getMessage());
-        }
-        log.info("Check-in thành công cho Booking ID: {}", bookingId);
-        return contract;
     }
 
     @Override
@@ -609,6 +624,122 @@ public class BookingServiceImpl implements BookingService {
 
         booking.setStatus(BookingStatus.CANCELLED);
         bookingRepository.save(booking);
+
+        // Set vehicle back to AVAILABLE when booking is cancelled
+        Vehicle vehicle = booking.getVehicle();
+        if (vehicle != null) {
+            vehicle.setStatus(VehicleStatus.AVAILABLE);
+            vehicleRepository.save(vehicle);
+        }
+    }
+
+    @Override
+    public Contract processCheckIn(Long bookingId, CheckInRequest req, User staff) {
+        if (staff.getStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản nhân viên của bạn đã bị khóa.");
+        }
+
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nhân viên chưa được gán cho trạm nào.");
+        }
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt xe."));
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        if (booking.getStatus() == BookingStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này chưa được xác nhận thanh toán phí giữ chỗ.");
+        }else if(booking.getStatus() == BookingStatus.RENTING){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã được thuê.");
+        }else if(booking.getStatus() == BookingStatus.COMPLETED){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã được hoàn thành.");
+        }else if(booking.getStatus() == BookingStatus.CANCELLED){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đơn đặt xe này đã bị hủy.");
+        }
+
+        Vehicle vehicle = booking.getVehicle();
+
+        if (req.getBattery() < 85) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Mức pin hiện tại chỉ có " + req.getBattery() + "%, không đủ mức pin tối thiểu 85% để giao xe cho khách thuê. " +
+                            "Vui lòng sạc xe trước khi giao cho khách.");
+        }
+
+        if (req.getMileage() < vehicle.getCurrentMileage()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Số km hiện tại bạn nhập (" + req.getMileage() + " km) không hợp lệ. " +
+                            "Số km trên hệ thống là " + vehicle.getCurrentMileage() + " km. " +
+                            "Vui lòng kiểm tra lại và nhập số km lớn hơn hoặc bằng số km hiện tại trên hệ thống.");
+        }
+
+        vehicle.setBatteryLevel(req.getBattery());
+        vehicle.setCurrentMileage(req.getMileage());
+        vehicle.setStatus(VehicleStatus.RENTED);
+        vehicleService.saveVehicle(vehicle);
+
+        if (req.getCheckInPhotos() == null || req.getCheckInPhotos().isEmpty() || req.getCheckInPhotos().get(0).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ảnh check-in (lúc giao xe) là bắt buộc.");
+        }
+
+
+        double rentalDepositAmount = booking.getVehicle().getDepositAmount();
+        if (!booking.isRentalDepositPaid()) {
+            log.info("Booking {} chưa trả cọc thuê xe qua PayOS. Xử lý thanh toán thủ công...", bookingId);
+
+            if (req.getDepositPaymentMethod() == PaymentMethod.GATEWAY) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thanh toán qua cổng PayOS chưa được xác nhận. Vui lòng đợi hoặc chọn phương thức thanh toán thủ công (Tiền mặt/Chuyển khoản).");
+            }
+
+            paymentService.createTransaction(booking, rentalDepositAmount, req.getDepositPaymentMethod(), staff, "Thu cọc thuê xe 2% (thủ công)");
+            booking.setRentalDepositPaid(true);
+
+        } else {
+            log.info("Booking {} đã trả cọc 2% qua PayOS. Bỏ qua tạo giao dịch 2%...", bookingId);
+        }
+
+        List<String> photoPaths = new ArrayList<>();
+        String photoPathsJson = null;
+        for (int i = 0; i < req.getCheckInPhotos().size(); i++) {
+            MultipartFile photo = req.getCheckInPhotos().get(i);
+            String savedPath = saveHandoverPhoto(photo, bookingId, "checkin", i + 1);
+            photoPaths.add(savedPath);
+        }
+
+        try {
+            photoPathsJson = objectMapper.writeValueAsString(photoPaths);
+            booking.setCheckInPhotoPaths(photoPathsJson);
+        } catch (Exception e) {
+            log.error("Lỗi khi chuyển đổi danh sách ảnh thành JSON", e);
+        }
+
+        booking.setRentalDeposit(rentalDepositAmount);
+        booking.setStartDate(LocalDateTime.now());
+        booking.setStatus(BookingStatus.RENTING);
+        bookingRepository.save(booking);
+
+        Contract contract = contractService.generateAndSaveContract(booking, staff);
+        try {
+            vehicleService.recordVehicleAction(
+                    booking.getVehicle().getVehicleId(),
+                    staff.getUserId(),
+                    booking.getUser().getUserId(),
+                    staff.getStation().getStationId(),
+                    VehicleActionType.DELIVERY,
+                    "Nhân viên " + staff.getFullName() + " đã giao xe cho khách " + booking.getUser().getFullName(),
+                    req.getConditionBefore(),
+                    null,
+                    req.getBattery(),
+                    req.getMileage(),
+                    photoPathsJson
+            );
+        } catch (Exception e) {
+            log.warn("Không thể ghi lịch sử giao xe cho booking ID {}: {}", bookingId, e.getMessage());
+        }
+        log.info("Check-in thành công cho Booking ID: {}", bookingId);
+        return contract;
     }
 
     @Transactional
@@ -634,5 +765,86 @@ public class BookingServiceImpl implements BookingService {
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lỗi hệ thống khi lưu ảnh.");
         }
+    }
+
+    public Map<String, Object> getPeakHourStatistics(Long stationId, LocalDate fromDate, LocalDate toDate) {
+        LocalDateTime from = (fromDate != null) ? fromDate.atStartOfDay() : LocalDate.now().minusDays(7).atStartOfDay();
+        LocalDateTime to = (toDate != null) ? toDate.atTime(23, 59, 59) : LocalDate.now().atTime(23, 59, 59);
+
+        List<Booking> bookings;
+
+        if (stationId != null) {
+            Station station = stationService.getStationById(stationId);
+            bookings = bookingRepository.findAllByStationAndStartDateBetween(station, from, to);
+        } else {
+            bookings = bookingRepository.findAllByStartDateBetween(from, to);
+        }
+
+        Map<Integer, Long> countByHour = new HashMap<>();
+        for (Booking b : bookings) {
+            int hour = b.getStartDate().getHour();
+            countByHour.put(hour, countByHour.getOrDefault(hour, 0L) + 1);
+        }
+
+        long total = countByHour.values().stream().mapToLong(Long::longValue).sum();
+        int peakHour = countByHour.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(-1);
+
+        List<Map<String, Object>> hourlyStats = new ArrayList<>();
+        long peakValue = countByHour.getOrDefault(peakHour, 0L);
+
+        for (int i = 0; i < 24; i++) {
+            long rented = countByHour.getOrDefault(i, 0L);
+            double percent = (peakValue == 0) ? 0 : (rented * 100.0 / peakValue);
+
+            Map<String, Object> item = new HashMap<>();
+            item.put("hourRange", String.format("%02d:00 - %02d:00", i, (i + 1) % 24));
+            item.put("rentedVehicles", rented);
+            item.put("percentOfPeak", percent);
+            hourlyStats.add(item);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("scope", stationId == null ? "Tất cả các trạm" : "Trạm ID " + stationId);
+        result.put("fromDate", from.toLocalDate());
+        result.put("toDate", to.toLocalDate());
+        result.put("totalRentals", total);
+        result.put("peakHour", peakHour == -1 ? "Không có dữ liệu" :
+                String.format("%02d:00 - %02d:00", peakHour, (peakHour + 1) % 24));
+        result.put("data", hourlyStats);
+
+        return result;
+    }
+    @Override
+    public List<BookingSummaryResponse> getBookingsWithFilter(UserBookingFilterRequest filter) {
+        return bookingRepository.findAll().stream()
+                .filter(b -> filter.getRenterName() == null ||
+                        b.getUser().getFullName().toLowerCase().contains(filter.getRenterName().toLowerCase()))
+                .filter(b -> filter.getStationId() == null ||
+                        (b.getStation() != null && b.getStation().getStationId().equals(filter.getStationId())))
+                .filter(b -> filter.getFromDate() == null ||
+                        !b.getStartDate().isBefore(filter.getFromDate()))
+                .filter(b -> filter.getToDate() == null ||
+                        !b.getStartDate().isAfter(filter.getToDate()))
+                .map(b -> BookingSummaryResponse.builder()
+                        .bookingId(b.getBookingId())
+                        .renterName(b.getUser().getFullName())
+                        .renterPhone(b.getUser().getPhone())
+                        .vehicleLicensePlate(b.getVehicle().getLicensePlate())
+                        .modelName(b.getVehicle().getModel().getModelName())
+                        .vehicleStatus(b.getVehicle().getStatus())
+                        .batteryLevel(b.getVehicle().getBatteryLevel())
+                        .currentMileage(b.getVehicle().getCurrentMileage())
+                        .bookingStatus(b.getStatus())
+                        .createdAt(b.getCreatedAt())
+                        .startDate(b.getStartDate())
+                        .stationId(b.getStation() != null ? b.getStation().getStationId() : null)
+                        .stationName(b.getStation() != null ? b.getStation().getName() : null)
+                        .refundAmount(b.getRefund())
+                        .refundInfo(b.getRefundNote())
+                        .build())
+                .toList();
     }
 }

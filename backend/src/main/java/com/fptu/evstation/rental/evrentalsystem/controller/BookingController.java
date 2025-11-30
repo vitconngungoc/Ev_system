@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+
 @RestController
 @RequestMapping("/api/bookings")
 @RequiredArgsConstructor
@@ -34,5 +35,15 @@ public class BookingController {
     @GetMapping("/{bookingId}")
     public ResponseEntity<BookingDetailResponse> getBookingDetails(@PathVariable Long bookingId) {
         return ResponseEntity.ok(bookingService.getBookingDetailsById(bookingId));
+    }
+
+    @PostMapping("/{bookingId}/recreate-payment")
+    public ResponseEntity<?> recreatePaymentLink(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId) {
+        User renter = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        Map<String, Object> result = bookingService.recreatePaymentLink(renter, bookingId);
+
+        return ResponseEntity.ok(result);
     }
 }
