@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,9 +18,6 @@ public interface AuthTokenRepository extends JpaRepository<AuthToken,Integer> {
     List<AuthToken> findByUser(User user);
 
     @Modifying
-    @Query("delete from AuthToken t where t.expiresAt < :now")
-    int deleteExpiredBefore(@Param("now") Instant now);
-
-    @Modifying
-    void deleteByToken(String token);
+    @Query("DELETE FROM AuthToken t WHERE t.expiresAt < :now")
+    void deleteExpiredBefore(@Param("now") LocalDateTime now);
 }

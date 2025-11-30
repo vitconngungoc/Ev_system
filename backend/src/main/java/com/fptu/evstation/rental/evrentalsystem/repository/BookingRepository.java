@@ -12,10 +12,19 @@ import java.util.List;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
-    long countByUserAndStatusIn(User user, List<BookingStatus> activeStatuses);
-    List<Booking> findAllByInvoicePdfPathIsNotNullAndStation(Station station, Sort sort);
+    List<Booking> findByStatusAndStartDateBefore(BookingStatus status, LocalDateTime expiryTime);
+
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, LocalDateTime cutoffTime);
+
     List<Booking> findByUserAndStatusIn(User user, List<BookingStatus> statuses);
+
+    List<Booking> findAllByInvoicePdfPathIsNotNullAndStation(Station station, Sort sort);
+
+    List<Booking> findAllByStartDateBetween(LocalDateTime from, LocalDateTime to);
+
+    List<Booking> findAllByStationAndStartDateBetween(Station station, LocalDateTime from, LocalDateTime to);
+
+    long countByUserAndStatusIn(User user, List<BookingStatus> activeStatuses);
 
     @Query("SELECT COUNT(b) FROM Booking b " +
             "WHERE b.vehicle = :vehicle " +
@@ -40,4 +49,5 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             "LEFT JOIN FETCH v.model " +
             "WHERE b.station = :station")
     List<Booking> findAllByStationWithDetails(@Param("station") Station station, Sort sort);
+    List<Booking> findAll(Sort sort);
 }
