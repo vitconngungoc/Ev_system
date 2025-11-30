@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +23,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class StationServiceImpl implements StationService {
     private final StationRepository stationRepository;
-    private final VehicleRepository vehicleRepository; // 
+    private final VehicleRepository vehicleRepository;
 
     @Override
     @Transactional
@@ -39,6 +40,7 @@ public class StationServiceImpl implements StationService {
                 .build();
         return stationRepository.save(station);
     }
+
     @Override
     public List<Station> getAllStations() {
         return stationRepository.findByStatus(StationStatus.ACTIVE);
@@ -88,7 +90,7 @@ public class StationServiceImpl implements StationService {
         return stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy trạm với ID: " + stationId));
     }
-  
+
     @Override
     @Transactional
     public Map<String, Object> getVehicleStatsByStation(Long stationId) {
@@ -124,4 +126,44 @@ public class StationServiceImpl implements StationService {
         return response;
     }
 
+    @Override
+    @Transactional
+    public List<Map<String, Object>> getAllStationReports() {
+        List<Object[]> results = vehicleRepository.getVehicleStatsGroupedByStation();
+
+        Map<Long, Map<String, Object>> stationReportMap = new HashMap<>();
+
+        for (Object[] row : results) {
+            Long stationId = (Long) row[0];
+            String stationName = (String) row[1];
+            VehicleStatus status = (VehicleStatus) row[2];
+            Long count = (Long) row[3];
+
+            stationReportMap.putIfAbsent(stationId, new HashMap<>(Map.of(
+                    "stationId", stationId,
+                    "stationName", stationName,
+                    "AVAILABLE", 0L,
+                    "RENTED", 0L,
+                    "RESERVED", 0L,
+                    "UNAVAILABLE", 0L
+            )));
+
+            stationReportMap.get(stationId).put(status.name(), count);
+        }
+
+        for (Map<String, Object> report : stationReportMap.values()) {
+            long available = (long) report.get("AVAILABLE");
+            long rented = (long) report.get("RENTED");
+            long reserved = (long) report.get("RESERVED");
+            long unavailable = (long) report.get("UNAVAILABLE");
+            long total = available + rented + reserved + unavailable;
+
+            double demandRate = total > 0 ? (rented * 100.0 / total) : 0.0;
+            report.put("rentedRate", Math.round(demandRate * 100.0) / 100.0);
+            report.put("demandLevel", demandRate > 60 ? "CAO" : demandRate > 30 ? "TRUNG BÌNH" : "THẤP");
+
+        }
+
+        return new ArrayList<>(stationReportMap.values());
+    }
 }

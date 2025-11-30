@@ -23,7 +23,6 @@ public class BookingDetailResponse {
     private String renterEmail;
 
     private String modelName;
-    private Double initialValue;
 
     private String vehicleLicensePlate;
     private Double pricePerHour;
@@ -39,4 +38,5 @@ public class BookingDetailResponse {
     private List<String> checkOutPhotoPaths;
     private String invoicePdfPath;
     private String contractPdfPath;
+    private String refundInfo;
 }

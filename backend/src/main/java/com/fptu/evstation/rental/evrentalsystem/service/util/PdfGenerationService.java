@@ -24,7 +24,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
-
 @Service
 @Slf4j
 public class PdfGenerationService {
@@ -103,7 +102,7 @@ public class PdfGenerationService {
             Table feeTable = new Table(UnitValue.createPercentArray(new float[]{1, 2})).useAllAvailableWidth();
             feeTable.addCell(new Paragraph("Đơn giá thuê").setFont(boldFont));
             feeTable.addCell(new Paragraph(String.format("%,.0f VNĐ/giờ", model.getPricePerHour())));
-            feeTable.addCell(new Paragraph("Tiền cọc thuê xe (2%)").setFont(boldFont));
+            feeTable.addCell(new Paragraph("Tiền cọc thuê xe").setFont(boldFont));
             feeTable.addCell(new Paragraph(String.format("%,.0f VNĐ", booking.getRentalDeposit())));
             document.add(feeTable);
 
@@ -238,7 +237,7 @@ public class PdfGenerationService {
             summaryTable.addHeaderCell(new Paragraph("Nội dung").setFont(boldFont));
             summaryTable.addHeaderCell(new Paragraph("Số tiền (VNĐ)").setFont(boldFont).setTextAlignment(TextAlignment.RIGHT));
 
-            summaryTable.addCell(new Paragraph("Tiền cọc thuê xe khách đã trả (500.000 VNĐ + 2% giá trị xe) :"));
+            summaryTable.addCell(new Paragraph("Tiền cọc thuê xe khách đã trả (500.000 VNĐ + tiền cọc xe) :"));
             summaryTable.addCell(new Paragraph(String.format("%,.0f", billDetails.getDownpayPaid())).setTextAlignment(TextAlignment.RIGHT));
 
             List<BillResponse.FeeItem> negativeFees = billDetails.getFeeItems().stream()

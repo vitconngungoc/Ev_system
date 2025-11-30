@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -17,6 +18,12 @@ import java.util.Map;
 public class VehicleController {
     private final StationService stationService;
     private final VehicleService vehicleService;
+
+    @GetMapping("/station/{stationId}/stats")
+    public ResponseEntity<?> getVehicleStatsByStation(@PathVariable Long stationId) {
+        Map<String, Object> stats = stationService.getVehicleStatsByStation(stationId);
+        return ResponseEntity.ok(stats);
+    }
 
     @GetMapping("/{vehicleId}/availability")
     public ResponseEntity<?> checkVehicleScheduleAvailability(

@@ -1,13 +1,5 @@
 package com.fptu.evstation.rental.evrentalsystem.controller;
 
-import com.fptu.evstation.rental.evrentalsystem.dto.DashboardSummaryDto;
-import com.fptu.evstation.rental.evrentalsystem.dto.ReportDamageRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.UpdateVehicleDetailsRequest;
-import com.fptu.evstation.rental.evrentalsystem.dto.VerifyRequest;
-import com.fptu.evstation.rental.evrentalsystem.entity.User;
-import com.fptu.evstation.rental.evrentalsystem.service.AuthService;
-import com.fptu.evstation.rental.evrentalsystem.service.DashboardService;
-import com.fptu.evstation.rental.evrentalsystem.service.VehicleService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fptu.evstation.rental.evrentalsystem.dto.*;
@@ -16,7 +8,7 @@ import com.fptu.evstation.rental.evrentalsystem.entity.Contract;
 import com.fptu.evstation.rental.evrentalsystem.entity.PenaltyFee;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.service.*;
-import com.fptu.evstation.rental.evrentalsystem.service.impl.UserServiceImpl;
+import com.fptu.evstation.rental.evrentalsystem.service.impl.*;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -39,21 +31,8 @@ public class StaffController {
     private final VehicleService vehicleService;
     private final ObjectMapper objectMapper;
     private final BookingService bookingService;
-    private final ContractService contractService;
     private final PenaltyFeeService penaltyFeeService;
-
-    @GetMapping("/verifications/pending")
-    public ResponseEntity<List<User>> getPendingVerifications(@RequestHeader("Authorization") String authHeader) {
-        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        return ResponseEntity.ok(userService.getPendingVerifications());
-    }
-
-    @PostMapping("/verifications/{userId}/process")
-    public ResponseEntity<?> verifyUser(@RequestHeader("Authorization") String authHeader, @PathVariable Long userId, @RequestBody VerifyRequest req) {
-        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        String message = userService.processVerification(userId, req);
-        return ResponseEntity.ok(Map.of("message", message));
-    }
+    private final ContractService contractService;
 
     @GetMapping("/bookings")
     public ResponseEntity<List<BookingSummaryResponse>> getAllBookings(
@@ -63,6 +42,25 @@ public class StaffController {
             @RequestParam(required = false) String date) {
         User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
         return ResponseEntity.ok(bookingService.getAllBookingsByStation(staff, keyword, status, date));
+    }
+
+    @GetMapping("/refund-requests")
+    public ResponseEntity<List<BookingSummaryResponse>> getRefundRequests(
+            @RequestHeader("Authorization") String authHeader) {
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        List<BookingSummaryResponse> list = bookingService.getPendingRefundsByStation(staff);
+        return ResponseEntity.ok(list);
+    }
+
+    @PostMapping("/bookings/{bookingId}/confirm-refund")
+    public ResponseEntity<?> confirmRefund(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId) {
+
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        bookingService.confirmRefund(staff, bookingId);
+
+        return ResponseEntity.ok(Map.of("message", "Đã xác nhận hoàn tiền thành công. Khách hàng sẽ thấy trạng thái 'Đã hoàn tiền'."));
     }
 
     @PostMapping("/bookings/{bookingId}/confirm-deposit")
@@ -110,6 +108,43 @@ public class StaffController {
         return ResponseEntity.ok(contractService.getAllContractsByStation(staff));
     }
 
+    @GetMapping("/verifications/pending")
+    public ResponseEntity<List<User>> getPendingVerifications(@RequestHeader("Authorization") String authHeader) {
+        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        return ResponseEntity.ok(userService.getPendingVerifications());
+    }
+
+    @PostMapping("/verifications/{userId}/process")
+    public ResponseEntity<?> verifyUser(@RequestHeader("Authorization") String authHeader, @PathVariable Long userId, @RequestBody VerifyRequest req) {
+        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        String message = userService.processVerification(userId, req);
+        return ResponseEntity.ok(Map.of("message", message));
+    }
+
+    @PostMapping("/bookings/{bookingId}/cancel")
+    public ResponseEntity<?> cancelBooking(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long bookingId) {
+
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        Booking booking = bookingService.getBookingById(bookingId);
+
+        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
+        }
+
+        bookingService.cancelBookingByStaff(bookingId, staff);
+        return ResponseEntity.ok(Map.of("message", "Nhân viên đã hủy booking thành công."));
+    }
+
+    @GetMapping("/penalty-fees")
+    public ResponseEntity<List<PenaltyFee>> getAllPenaltyFees(@RequestHeader("Authorization") String authHeader) {
+        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        List<PenaltyFee> fees = penaltyFeeService.getAllPenaltyFees();
+        return ResponseEntity.ok(fees);
+    }
+
+
     @PostMapping(value = "/bookings/{bookingId}/calculate-bill", consumes = { "multipart/form-data" })
     public ResponseEntity<BillResponse> calculateFinalBill(
             @RequestHeader("Authorization") String authHeader,
@@ -143,48 +178,6 @@ public class StaffController {
         return ResponseEntity.ok(result);
     }
 
-    @PostMapping("/bookings/{bookingId}/cancel")
-    public ResponseEntity<?> cancelBooking(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable Long bookingId) {
-
-        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        Booking booking = bookingService.getBookingById(bookingId);
-
-        if (!booking.getStation().getStationId().equals(staff.getStation().getStationId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác trên đơn hàng của trạm khác.");
-        }
-
-        bookingService.cancelBookingByStaff(bookingId, staff);
-        return ResponseEntity.ok(Map.of("message", "Nhân viên đã hủy booking thành công."));
-    }
-
-    @GetMapping("/refund-requests")
-    public ResponseEntity<List<BookingSummaryResponse>> getRefundRequests(
-            @RequestHeader("Authorization") String authHeader) {
-        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        List<BookingSummaryResponse> list = bookingService.getPendingRefundsByStation(staff);
-        return ResponseEntity.ok(list);
-    }
-
-    @PostMapping("/bookings/{bookingId}/confirm-refund")
-    public ResponseEntity<?> confirmRefund(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable Long bookingId) {
-
-        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        bookingService.confirmRefund(staff, bookingId);
-
-        return ResponseEntity.ok(Map.of("message", "Đã xác nhận hoàn tiền thành công. Khách hàng sẽ thấy trạng thái 'Đã hoàn tiền'."));
-    }
-
-    @GetMapping("/penalty-fees")
-    public ResponseEntity<List<PenaltyFee>> getAllPenaltyFees(@RequestHeader("Authorization") String authHeader) {
-        authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        List<PenaltyFee> fees = penaltyFeeService.getAllPenaltyFees();
-        return ResponseEntity.ok(fees);
-    }
-
     @GetMapping("/invoices")
     public ResponseEntity<List<InvoiceSummaryResponse>> getAllInvoices(@RequestHeader("Authorization") String authHeader) {
         User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
@@ -192,11 +185,16 @@ public class StaffController {
         return ResponseEntity.ok(invoices);
     }
 
-    @GetMapping("/dashboard")
-    public ResponseEntity<DashboardSummaryDto> getDashboardSummary(@RequestHeader("Authorization") String authHeader) {
+    @GetMapping("/my-station/vehicles")
+    public ResponseEntity<List<VehicleResponse>> getVehiclesForStaffStation(@RequestHeader("Authorization") String authHeader) {
         User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
-        return ResponseEntity.ok(dashboardService.getSummaryForStaff(staff));
+        if (staff.getStation() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn chưa được gán cho trạm nào.");
+        }
+        List<VehicleResponse> vehicles = vehicleService.getAllVehiclesByStation(staff.getStation());
+        return ResponseEntity.ok(vehicles);
     }
+
     @PutMapping("/vehicles/{vehicleId}/details")
     public ResponseEntity<?> updateVehicleDetails(@RequestHeader("Authorization") String authHeader, @PathVariable Long vehicleId, @Valid @RequestBody UpdateVehicleDetailsRequest req) {
         User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
@@ -209,5 +207,11 @@ public class StaffController {
         User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
         vehicleService.reportMajorDamage(staff, vehicleId, req);
         return ResponseEntity.ok(Map.of("message", "Báo cáo hư hỏng đã được ghi nhận. Xe đã được chuyển vào trạng thái bảo trì."));
+    }
+
+    @GetMapping("/dashboard")
+    public ResponseEntity<DashboardSummaryDto> getDashboardSummary(@RequestHeader("Authorization") String authHeader) {
+        User staff = authService.validateTokenAndGetUser(authService.getTokenFromHeader(authHeader));
+        return ResponseEntity.ok(dashboardService.getSummaryForStaff(staff));
     }
 }

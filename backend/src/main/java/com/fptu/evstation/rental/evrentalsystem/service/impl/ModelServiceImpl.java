@@ -11,6 +11,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
@@ -27,14 +28,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ModelServiceImpl implements ModelService {
     private final ModelRepository modelRepository;
     private final VehicleRepository vehicleRepository;
     private final BookingRepository bookingRepository;
     private final StationService stationService;
-
     private final Path modelBaseDir = Paths.get(System.getProperty("user.dir"), "uploads", "models_img");
 
     @Override
@@ -61,7 +63,6 @@ public class ModelServiceImpl implements ModelService {
                 .rangeKm(request.getRangeKm())
                 .features(request.getFeatures())
                 .pricePerHour(request.getPricePerHour())
-                .initialValue(request.getInitialValue())
                 .description(request.getDescription())
                 .imagePaths(imagePaths)
                 .build();
@@ -86,7 +87,6 @@ public class ModelServiceImpl implements ModelService {
         if (request.getFeatures() != null) model.setFeatures(request.getFeatures());
         if (request.getDescription() != null) model.setDescription(request.getDescription());
         if (request.getPricePerHour() != null) model.setPricePerHour(request.getPricePerHour());
-        if (request.getInitialValue() != null) model.setInitialValue(request.getInitialValue());
         model.setUpdatedAt(LocalDateTime.now());
         model.setImagePaths(newPaths);
 
@@ -110,13 +110,6 @@ public class ModelServiceImpl implements ModelService {
     }
 
     @Override
-    public Model getModelById(Long id) {
-        return modelRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy model với ID: " + id));
-    }
-
-
-    @Override
     public ModelResponse getModelDetailsById(Long id) {
         Model model = modelRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -134,13 +127,18 @@ public class ModelServiceImpl implements ModelService {
                 .batteryCapacity(model.getBatteryCapacity())
                 .rangeKm(model.getRangeKm())
                 .pricePerHour(model.getPricePerHour())
-                .initialValue(model.getInitialValue())
                 .features(model.getFeatures())
                 .description(model.getDescription())
                 .imagePaths(paths)
                 .createdAt(model.getCreatedAt())
                 .updatedAt(model.getUpdatedAt())
                 .build();
+    }
+
+    @Override
+    public Model getModelById(Long id) {
+        return modelRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy model với ID: " + id));
     }
 
     @Override
@@ -202,6 +200,78 @@ public class ModelServiceImpl implements ModelService {
         return models.stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
+    }
+
+    private ModelResponse convertToResponse(Model model) {
+        List<String> paths = (model.getImagePaths() != null && !model.getImagePaths().isBlank())
+                ? List.of(model.getImagePaths().split(","))
+                : new ArrayList<>();
+
+        return ModelResponse.builder()
+                .modelId(model.getModelId())
+                .modelName(model.getModelName())
+                .vehicleType(model.getVehicleType())
+                .seatCount(model.getSeatCount())
+                .batteryCapacity(model.getBatteryCapacity())
+                .rangeKm(model.getRangeKm())
+                .pricePerHour(model.getPricePerHour())
+                .features(model.getFeatures())
+                .description(model.getDescription())
+                .imagePaths(paths)
+                .createdAt(model.getCreatedAt())
+                .updatedAt(model.getUpdatedAt())
+                .rentalCount(model.getRentalCount())
+                .build();
+    }
+
+    private String saveImagesAndGetPaths(String modelName,
+                                         List<MultipartFile> images,
+                                         String currentImagePaths) {
+        if (images == null || images.isEmpty() || (images.size() == 1 && images.get(0).isEmpty())) {
+            return currentImagePaths;
+        }
+        String modelDirName = modelName.replaceAll("[^a-zA-Z0-9-]", "_");
+
+        Path modelDirPathAbsolute = modelBaseDir.resolve(modelDirName);
+
+        try {
+            Files.createDirectories(modelDirPathAbsolute);
+        } catch (IOException e) {
+            throw new RuntimeException("Không thể tạo thư mục lưu ảnh: " + modelDirPathAbsolute, e);
+        }
+
+        List<String> newRelativePaths = new ArrayList<>();
+
+        for (MultipartFile file : images) {
+            if (file.isEmpty()) continue;
+
+            String contentType = file.getContentType();
+            if (contentType == null || !isValidImage(contentType)) {
+                System.err.println("File " + file.getOriginalFilename() + " có định dạng không hợp lệ: " + contentType);
+                continue;
+            }
+
+            String uniqueFileName = file.getOriginalFilename();
+            Path filePathAbsolute = modelDirPathAbsolute.resolve(uniqueFileName);
+
+            try {
+                file.transferTo(filePathAbsolute);
+                String relativePath = "/uploads/models_img/" + modelDirName + "/" + uniqueFileName;
+                newRelativePaths.add(relativePath);
+
+            } catch (IOException e) {
+                System.err.println("Lỗi khi lưu file: " + uniqueFileName + ". Error: " + e.getMessage());
+            }
+        }
+        return String.join(",", newRelativePaths);
+    }
+
+    private boolean isValidImage(String contentType) {
+        return contentType.equals("image/png") ||
+                contentType.equals("image/jpeg") ||
+                contentType.equals("image/jpg") ||
+                contentType.equals("image/gif") ||
+                contentType.equals("image/webp");
     }
 
     @Override
@@ -310,7 +380,6 @@ public class ModelServiceImpl implements ModelService {
                 .batteryCapacity(model.getBatteryCapacity())
                 .rangeKm(model.getRangeKm())
                 .pricePerHour(model.getPricePerHour())
-                .initialValue(model.getInitialValue())
                 .features(model.getFeatures())
                 .description(model.getDescription())
                 .imagePaths(paths)
@@ -321,78 +390,4 @@ public class ModelServiceImpl implements ModelService {
                 .rentalCount(model.getRentalCount())
                 .build();
     }
-
-    private ModelResponse convertToResponse(Model model) {
-        List<String> paths = (model.getImagePaths() != null && !model.getImagePaths().isBlank())
-                ? List.of(model.getImagePaths().split(","))
-                : new ArrayList<>();
-
-        return ModelResponse.builder()
-                .modelId(model.getModelId())
-                .modelName(model.getModelName())
-                .vehicleType(model.getVehicleType())
-                .seatCount(model.getSeatCount())
-                .batteryCapacity(model.getBatteryCapacity())
-                .rangeKm(model.getRangeKm())
-                .pricePerHour(model.getPricePerHour())
-                .initialValue(model.getInitialValue())
-                .features(model.getFeatures())
-                .description(model.getDescription())
-                .imagePaths(paths)
-                .createdAt(model.getCreatedAt())
-                .updatedAt(model.getUpdatedAt())
-                .rentalCount(model.getRentalCount())
-                .build();
-    }
-
-    private String saveImagesAndGetPaths(String modelName,
-                                         List<MultipartFile> images,
-                                         String currentImagePaths) {
-        if (images == null || images.isEmpty() || (images.size() == 1 && images.get(0).isEmpty())) {
-            return currentImagePaths;
-        }
-        String modelDirName = modelName.replaceAll("[^a-zA-Z0-9-]", "_");
-
-        Path modelDirPathAbsolute = modelBaseDir.resolve(modelDirName);
-
-        try {
-            Files.createDirectories(modelDirPathAbsolute);
-        } catch (IOException e) {
-            throw new RuntimeException("Không thể tạo thư mục lưu ảnh: " + modelDirPathAbsolute, e);
-        }
-
-        List<String> newRelativePaths = new ArrayList<>();
-
-        for (MultipartFile file : images) {
-            if (file.isEmpty()) continue;
-
-            String contentType = file.getContentType();
-            if (contentType == null || !isValidImage(contentType)) {
-                System.err.println("File " + file.getOriginalFilename() + " có định dạng không hợp lệ: " + contentType);
-                continue;
-            }
-
-            String uniqueFileName = file.getOriginalFilename();
-            Path filePathAbsolute = modelDirPathAbsolute.resolve(uniqueFileName);
-
-            try {
-                file.transferTo(filePathAbsolute);
-                String relativePath = "/uploads/models_img/" + modelDirName + "/" + uniqueFileName;
-                newRelativePaths.add(relativePath);
-
-            } catch (IOException e) {
-                System.err.println("Lỗi khi lưu file: " + uniqueFileName + ". Error: " + e.getMessage());
-            }
-        }
-        return String.join(",", newRelativePaths);
-    }
-
-    private boolean isValidImage(String contentType) {
-        return contentType.equals("image/png") ||
-                contentType.equals("image/jpeg") ||
-                contentType.equals("image/jpg") ||
-                contentType.equals("image/gif") ||
-                contentType.equals("image/webp");
-    }
-
 }

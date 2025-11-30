@@ -10,6 +10,7 @@ import java.util.List;
 
 public interface RatingRepository extends JpaRepository<Rating, Long> {
     List<Rating> findByStation(Station station);
+
     @Query("SELECT AVG(r.stars) FROM Rating r WHERE r.station = :station")
     Double findAverageStarsByStation(@Param("station") Station station);
 

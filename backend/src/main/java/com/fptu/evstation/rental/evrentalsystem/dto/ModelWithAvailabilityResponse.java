@@ -21,7 +21,6 @@ public class ModelWithAvailabilityResponse {
     private Double batteryCapacity;
     private Double rangeKm;
     private Double pricePerHour;
-    private Double initialValue;
     private String features;
     private String description;
     private List<String> imagePaths;
@@ -29,7 +28,6 @@ public class ModelWithAvailabilityResponse {
     private LocalDateTime updatedAt;
     private Integer rentalCount;
 
-    // Availability information
     private Integer availableVehicleCount;
     private Integer totalVehicleCount;
 }

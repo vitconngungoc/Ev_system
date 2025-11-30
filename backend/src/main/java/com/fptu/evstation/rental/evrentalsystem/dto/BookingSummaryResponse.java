@@ -5,7 +5,6 @@ import com.fptu.evstation.rental.evrentalsystem.entity.VehicleStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-
 import java.time.LocalDateTime;
 
 @Data

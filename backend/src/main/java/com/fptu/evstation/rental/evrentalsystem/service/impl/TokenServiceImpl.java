@@ -4,13 +4,11 @@ import com.fptu.evstation.rental.evrentalsystem.entity.AuthToken;
 import com.fptu.evstation.rental.evrentalsystem.entity.User;
 import com.fptu.evstation.rental.evrentalsystem.repository.AuthTokenRepository;
 import com.fptu.evstation.rental.evrentalsystem.service.TokenService;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -21,6 +19,7 @@ import java.util.UUID;
 public class TokenServiceImpl implements TokenService {
 
     private final AuthTokenRepository authTokenRepository;
+
 
     @Override
     public AuthToken createToken(User user) {
@@ -46,13 +45,11 @@ public class TokenServiceImpl implements TokenService {
         authTokenRepository.delete(existingToken);
     }
 
-
     @Override
-    @Transactional
     public User validateTokenAndGetUser(String token) {
         var tokenOpt = authTokenRepository.findByToken(token);
         if (tokenOpt.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tài khoản của bạn đã đăng nhập ở nơi khác");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
         }
         var t = tokenOpt.get();
         if (t.getExpiresAt() == null || t.getExpiresAt().isBefore(LocalDateTime.now())) {

@@ -2,6 +2,7 @@ package com.fptu.evstation.rental.evrentalsystem.dto;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -13,6 +14,7 @@ public class BillResponse {
     private LocalDateTime dateTime;
     private String userName;
 
+    private Double actualRentalHours;
     private Double baseRentalFee;
     private Double totalPenaltyFee;
     private Double totalDiscount;

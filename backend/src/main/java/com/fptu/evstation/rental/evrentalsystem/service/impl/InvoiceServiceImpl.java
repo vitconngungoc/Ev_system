@@ -36,7 +36,7 @@ public class InvoiceServiceImpl implements InvoiceService {
 
     @Override
     @Transactional
-    public String generateAndSendInvoice(BillResponse billDetails) {
+    public String generateInvoicePdfOnly(BillResponse billDetails) {
         try {
             Booking booking = bookingRepository.findById(billDetails.getBookingId()).orElseThrow();
             String renterNameNormalized = Normalizer.normalize(booking.getUser().getFullName(), Normalizer.Form.NFD)
@@ -52,9 +52,38 @@ public class InvoiceServiceImpl implements InvoiceService {
 
             booking.setInvoicePdfPath(relativePath);
             bookingRepository.save(booking);
-            File pdfFile = filePath.toFile();
-            String invoiceCode = "HD" + booking.getBookingId();
 
+            log.info("Đã tạo file hóa đơn PDF cho Booking ID: {} tại: {}", billDetails.getBookingId(), relativePath);
+            return relativePath;
+        } catch (IOException e) {
+            log.error("Lỗi khi tạo file hóa đơn PDF cho Booking ID: {}", billDetails.getBookingId(), e);
+            return null;
+        }
+    }
+
+    @Override
+    @Transactional
+    public String generateAndSendInvoice(BillResponse billDetails) {
+        try {
+            Booking booking = bookingRepository.findById(billDetails.getBookingId()).orElseThrow();
+
+            String relativePath = booking.getInvoicePdfPath();
+            if (relativePath == null || relativePath.isBlank()) {
+                relativePath = generateInvoicePdfOnly(billDetails);
+                if (relativePath == null) {
+                    return null;
+                }
+            }
+
+            Path filePath = Paths.get(System.getProperty("user.dir"), relativePath.substring(1));
+            File pdfFile = filePath.toFile();
+
+            if (!pdfFile.exists()) {
+                log.error("File hóa đơn không tồn tại: {}", filePath);
+                return null;
+            }
+
+            String invoiceCode = "HD" + booking.getBookingId();
             emailService.sendInvoiceWithAttachment(
                     booking.getUser().getEmail(),
                     booking.getUser().getFullName(),
@@ -64,8 +93,8 @@ public class InvoiceServiceImpl implements InvoiceService {
 
             log.info("Đã gửi hóa đơn tự động cho khách hàng: {}", booking.getUser().getEmail());
             return relativePath;
-        } catch (IOException e) {
-            log.error("Lỗi khi tạo file hóa đơn PDF cho Booking ID: {}", billDetails.getBookingId(), e);
+        } catch (Exception e) {
+            log.error("Lỗi khi gửi hóa đơn cho Booking ID: {}", billDetails.getBookingId(), e);
             return null;
         }
     }

@@ -18,12 +18,10 @@ public class ModelResponse {
     private Double batteryCapacity;
     private Double rangeKm;
     private Double pricePerHour;
-    private Double initialValue;
     private String features;
     private String description;
     private List<String> imagePaths;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer rentalCount;
-
 }
